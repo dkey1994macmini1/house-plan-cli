@@ -1,0 +1,34 @@
+{
+  "name": "house-plan-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic 2D house-plan geometry and validation CLI for LLM agents.",
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "@effect/cli": "0.77.2",
+    "@effect/platform-node": "0.108.2",
+    "effect": "3.22.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@effect/language-service": "0.87.2",
+    "@effect/vitest": "0.30.0",
+    "@types/node": "^22.20.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
