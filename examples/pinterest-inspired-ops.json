@@ -1,0 +1,200 @@
+[
+  { "kind": "level.upsert", "name": "parter", "elevationCm": 0, "order": 0 },
+  { "kind": "level.upsert", "name": "pietro", "elevationCm": 280, "order": 1 },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "north",
+      "a": { "x": 0, "y": 1100 },
+      "b": { "x": 900, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 900, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "west",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 0, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "east",
+      "a": { "x": 900, "y": 0 },
+      "b": { "x": 900, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-divider",
+      "a": { "x": 0, "y": 750 },
+      "b": { "x": 500, "y": 750 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-divider",
+      "a": { "x": 0, "y": 400 },
+      "b": { "x": 500, "y": 400 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen",
+      "type": "kitchen",
+      "seed": { "x": 250, "y": 925 },
+      "bounds": { "x": 0, "y": 750, "width": 500, "height": 350 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining",
+      "type": "dining",
+      "seed": { "x": 450, "y": 575 },
+      "bounds": { "x": 0, "y": 400, "width": 900, "height": 350 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-1",
+      "type": "bedroom",
+      "seed": { "x": 250, "y": 200 },
+      "bounds": { "x": 0, "y": 0, "width": 500, "height": 400 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living",
+      "type": "living",
+      "seed": { "x": 700, "y": 200 },
+      "bounds": { "x": 500, "y": 0, "width": 400, "height": 400 }
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "front-door",
+      "wall": "south",
+      "type": "door",
+      "variant": "single",
+      "offset": 650,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-window",
+      "wall": "north",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 180,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living-window",
+      "wall": "east",
+      "type": "window",
+      "variant": "casement",
+      "offset": 120,
+      "width": 140
+    }
+  },
+  {
+    "kind": "object.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-table",
+      "label": "Stół",
+      "center": { "x": 450, "y": 570 },
+      "width": 180,
+      "depth": 90,
+      "rotation": 0
+    }
+  },
+  {
+    "kind": "object.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "sofa",
+      "label": "Sofa",
+      "center": { "x": 700, "y": 180 },
+      "width": 180,
+      "depth": 80,
+      "rotation": 0
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "stairs-up",
+      "run": "main-stairs",
+      "direction": "up",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  },
+  {
+    "kind": "void.upsert",
+    "level": "pietro",
+    "entity": {
+      "name": "stairs-void",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "pietro",
+    "entity": {
+      "name": "stairs-down",
+      "run": "main-stairs",
+      "direction": "down",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  }
+]

@@ -1,0 +1,47 @@
+[
+  { "kind": "level.upsert", "name": "ground", "elevationCm": 0, "order": 0 },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "north",
+      "a": { "x": 0, "y": 800 },
+      "b": { "x": 900, "y": 800 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 900, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "living",
+      "type": "living",
+      "seed": { "x": 300, "y": 300 },
+      "bounds": { "x": 0, "y": 0, "width": 500, "height": 500 }
+    }
+  },
+  {
+    "kind": "object.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "table",
+      "label": "Dining table",
+      "center": { "x": 250, "y": 250 },
+      "width": 120,
+      "depth": 80,
+      "rotation": 0
+    }
+  }
+]
