@@ -31,6 +31,6 @@ export const renderObjectsLayer = (objects: readonly ObjectBox[]): string =>
   objects
     .map(
       (object) =>
-        `<g transform="${rotationTransform(object)}">${clearanceFrame(object)}${objectFrame(object)}${objectCross(object)}<text x="${object.center.x}" y="${svgY(object.center.y)}" text-anchor="middle">${escapeXml(object.label)}</text></g>`,
+        `<g transform="${rotationTransform(object)}">${clearanceFrame(object)}${objectFrame(object)}${objectCross(object)}<text x="${object.center.x}" y="${svgY(object.center.y)}" text-anchor="middle" fill="#222" stroke="white" stroke-width="4" paint-order="stroke">${escapeXml(object.label)}</text></g>`,
     )
     .join("");

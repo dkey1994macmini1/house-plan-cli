@@ -126,6 +126,80 @@
     }
   },
   {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bath-hall",
+      "type": "bathroom",
+      "seed": { "x": 700, "y": 575 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "stair-hall",
+      "type": "circulation",
+      "seed": { "x": 700, "y": 925 }
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-to-dining",
+      "wall": "kitchen-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-bedroom",
+      "wall": "bedroom-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 80,
+      "hinge": "right",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-bath",
+      "wall": "upper-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 70,
+      "hinge": "left",
+      "swing": "out"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-stairs",
+      "wall": "upper-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 500,
+      "width": 80,
+      "hinge": "right",
+      "swing": "in"
+    }
+  },
+  {
     "kind": "opening.upsert",
     "level": "parter",
     "entity": {
@@ -160,6 +234,42 @@
       "type": "window",
       "variant": "casement",
       "offset": 120,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-window",
+      "wall": "west",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 130,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bath-window",
+      "wall": "east",
+      "type": "window",
+      "variant": "tilt-turn",
+      "offset": 520,
+      "width": 100
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "porch-window",
+      "wall": "south",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 150,
       "width": 140
     }
   },

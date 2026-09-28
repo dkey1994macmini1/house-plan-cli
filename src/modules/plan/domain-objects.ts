@@ -49,26 +49,41 @@ export class WallSegment {
       right.offset < left.offset + left.width
     );
   }
-  doorSwingBounds(opening: Opening): Bounds | undefined {
+  doorGeometry(
+    opening: Opening,
+  ):
+    | Readonly<{ hinge: Point; closedLeaf: Point; openLeaf: Point }>
+    | undefined {
     if (opening.type !== "door" || opening.variant === "sliding")
       return undefined;
     const { start, end } = this.openingEndpoints(opening);
     const hinge = opening.hinge === "right" ? end : start;
+    const closedLeaf = opening.hinge === "right" ? start : end;
     const horizontal = this.value.a.y === this.value.b.y;
-    const sign = opening.swing === "out" ? -1 : 1;
-    return horizontal
-      ? {
-          x: Math.min(start.x, end.x),
-          y: hinge.y + Math.min(0, sign * opening.width),
-          width: opening.width,
-          height: opening.width,
-        }
-      : {
-          x: hinge.x + Math.min(0, sign * opening.width),
-          y: Math.min(start.y, end.y),
-          width: opening.width,
-          height: opening.width,
-        };
+    const normalDirection = opening.swing === "out" ? -1 : 1;
+    return {
+      hinge,
+      closedLeaf,
+      openLeaf: horizontal
+        ? { x: hinge.x, y: hinge.y + normalDirection * opening.width }
+        : { x: hinge.x - normalDirection * opening.width, y: hinge.y },
+    };
+  }
+
+  doorSwingBounds(opening: Opening): Bounds | undefined {
+    const geometry = this.doorGeometry(opening);
+    if (!geometry) return undefined;
+    const points = [geometry.hinge, geometry.closedLeaf, geometry.openLeaf];
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return {
+      x,
+      y,
+      width: Math.max(...xs) - x,
+      height: Math.max(...ys) - y,
+    };
   }
 
   openingEndpoints(opening: Opening): Readonly<{ start: Point; end: Point }> {

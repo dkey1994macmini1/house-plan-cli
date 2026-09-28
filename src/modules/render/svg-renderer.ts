@@ -18,10 +18,37 @@ const escapeXml = (value: string): string =>
 const renderWall = (wall: Storey["walls"][number]): string =>
   `<line x1="${wall.a.x}" y1="${svgY(wall.a.y)}" x2="${wall.b.x}" y2="${svgY(wall.b.y)}" stroke="black" stroke-width="${wall.thickness}"/>`;
 
-const renderDoorSwing = (opening: Opening, wall: WallSegment): string => {
-  if (opening.type !== "door") return "";
+const renderDoor = (opening: Opening, wall: WallSegment): string => {
+  const geometry = wall.doorGeometry(opening);
+  if (!geometry) return "";
+  const { hinge, closedLeaf, openLeaf } = geometry;
+  const sweep = opening.hinge === "left" ? 1 : 0;
+  return `<line class="door-leaf" x1="${hinge.x}" y1="${svgY(hinge.y)}" x2="${openLeaf.x}" y2="${svgY(openLeaf.y)}" stroke="#246" stroke-width="4"/><circle class="door-hinge" cx="${hinge.x}" cy="${svgY(hinge.y)}" r="5" fill="#246"/><path class="door-swing" d="M${closedLeaf.x} ${svgY(closedLeaf.y)} A${opening.width} ${opening.width} 0 0 ${sweep} ${openLeaf.x} ${svgY(openLeaf.y)}" fill="none" stroke="#246" stroke-dasharray="8 5"/>`;
+};
+
+const renderWindow = (opening: Opening, wall: WallSegment): string => {
   const { start, end } = wall.openingEndpoints(opening);
-  return `<path class="door-swing" d="M${start.x} ${svgY(start.y)} A${opening.width} ${opening.width} 0 0 1 ${end.x} ${svgY(end.y)}" fill="none" stroke="#246"/>`;
+  const horizontal = wall.value.a.y === wall.value.b.y;
+  const offset = wall.value.thickness / 4;
+  const first = horizontal
+    ? {
+        start: { x: start.x, y: start.y - offset },
+        end: { x: end.x, y: end.y - offset },
+      }
+    : {
+        start: { x: start.x - offset, y: start.y },
+        end: { x: end.x - offset, y: end.y },
+      };
+  const second = horizontal
+    ? {
+        start: { x: start.x, y: start.y + offset },
+        end: { x: end.x, y: end.y + offset },
+      }
+    : {
+        start: { x: start.x + offset, y: start.y },
+        end: { x: end.x + offset, y: end.y },
+      };
+  return `<g class="window"><line x1="${first.start.x}" y1="${svgY(first.start.y)}" x2="${first.end.x}" y2="${svgY(first.end.y)}" stroke="#168" stroke-width="4"/><line x1="${second.start.x}" y1="${svgY(second.start.y)}" x2="${second.end.x}" y2="${svgY(second.end.y)}" stroke="#168" stroke-width="4"/></g>`;
 };
 
 const renderOpening = (opening: Opening, storey: Storey): string => {
@@ -29,7 +56,8 @@ const renderOpening = (opening: Opening, storey: Storey): string => {
   if (!host) return "";
   const wall = new WallSegment(host);
   const { start, end } = wall.openingEndpoints(opening);
-  return `<line x1="${start.x}" y1="${svgY(start.y)}" x2="${end.x}" y2="${svgY(end.y)}" stroke="white" stroke-width="${host.thickness + 4}"/>${renderDoorSwing(opening, wall)}`;
+  const cutout = `<line x1="${start.x}" y1="${svgY(start.y)}" x2="${end.x}" y2="${svgY(end.y)}" stroke="white" stroke-width="${host.thickness + 4}"/>`;
+  return `${cutout}${opening.type === "door" ? renderDoor(opening, wall) : renderWindow(opening, wall)}`;
 };
 
 const dimensionLength = (dimension: Dimension): number =>

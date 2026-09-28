@@ -7,6 +7,7 @@ import {
   validate,
 } from "../src/house-plan.js";
 import { hasGridMeasurements } from "../src/modules/plan/schema.js";
+import { renderStairsLayer } from "../src/modules/render/circulation-layer.js";
 
 const rectangle = (
   level: string,
@@ -213,6 +214,18 @@ describe("HousePlanEngine", () => {
         },
       },
       {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "window",
+          wall: "shell-north",
+          type: "window",
+          variant: "fixed",
+          offset: 200,
+          width: 120,
+        },
+      },
+      {
         kind: "annotation.upsert",
         level: "ground",
         entity: { name: "note", text: "Concept only", at: { x: 20, y: 20 } },
@@ -235,7 +248,23 @@ describe("HousePlanEngine", () => {
     expect(svg).toContain('id="dimensions"');
     expect(svg).toContain('id="annotations"');
     expect(svg).toContain('class="door-swing"');
+    expect(svg).toContain('class="door-leaf"');
+    expect(svg).toContain('class="window"');
     expect(renderSvg(plan, storey)).toBe(svg);
+  });
+
+  it("renders stair treads instead of an empty circulation rectangle", () => {
+    const svg = renderStairsLayer([
+      {
+        id: "stairs",
+        name: "up",
+        run: "main",
+        direction: "up",
+        bounds: { x: 0, y: 0, width: 100, height: 200 },
+      },
+    ]);
+    expect((svg.match(/<line /g) ?? []).length).toBe(9);
+    expect(svg).toContain("↑ main");
   });
 
   it("reports authored clearance overlap as a warning without mutating geometry", () => {
