@@ -10,10 +10,11 @@ pnpm build
 pnpm cli init --out my-house.json
 pnpm cli apply --plan my-house.json --input examples/reference-ground-floor-ops.json --expected-revision 0
 pnpm cli validate --plan my-house.json
+pnpm cli survey --plan my-house.json
 pnpm cli render --plan my-house.json --level ground --out my-house.svg
 ```
 
-Send `my-house.svg` as the floor-plan image. Open it in any modern browser first if you want to inspect it.
+`survey` is the compact reading: rooms, unique face area, doors, passages, windows, and objects. `report` prints the full resolved geometry. Send `my-house.svg` as the floor-plan image. Open it in any modern browser first if you want to inspect it.
 
 ## Modify a plan
 

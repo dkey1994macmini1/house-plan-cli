@@ -421,4 +421,149 @@ describe("house-plan executable", () => {
     });
     expect(await readFile(planPath, "utf8")).toBe(beforeRejectedEdit);
   });
+
+  it("surveys a plan as a compact reading and leaves the file unchanged", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "house-plan-survey-"));
+    const planPath = join(directory, "plan.json");
+    const operationsPath = join(directory, "operations.json");
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+    await writeFile(
+      operationsPath,
+      JSON.stringify([
+        { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "south",
+            a: { x: 0, y: 0 },
+            b: { x: 400, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "east",
+            a: { x: 400, y: 0 },
+            b: { x: 400, y: 300 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "north",
+            a: { x: 400, y: 300 },
+            b: { x: 0, y: 300 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "west",
+            a: { x: 0, y: 300 },
+            b: { x: 0, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "room.upsert",
+          level: "ground",
+          entity: { name: "living", type: "living", seed: { x: 200, y: 150 } },
+        },
+        {
+          kind: "opening.upsert",
+          level: "ground",
+          entity: {
+            name: "entry",
+            wall: "south",
+            type: "door",
+            variant: "single",
+            offset: 150,
+            width: 90,
+            hinge: "left",
+            swing: "in",
+          },
+        },
+      ]),
+      "utf8",
+    );
+    expect(
+      (
+        await runCli(
+          "apply",
+          "--plan",
+          planPath,
+          "--input",
+          operationsPath,
+          "--expected-revision",
+          "0",
+        )
+      ).status,
+    ).toBe(0);
+    const before = await readFile(planPath, "utf8");
+    const result = await runCli("survey", "--plan", planPath);
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      type: "plan.survey",
+      schemaVersion: 1,
+      data: {
+        revision: 1,
+        valid: true,
+        levels: [
+          {
+            name: "ground",
+            faceAreaCm2: 120000,
+            roomClaimAreaCm2: 120000,
+            rooms: [
+              {
+                name: "living",
+                widthCm: 400,
+                depthCm: 300,
+                areaCm2: 120000,
+              },
+            ],
+            connections: [
+              {
+                kind: "door",
+                opening: "entry",
+                widthCm: 90,
+                sides: [["living"], ["outside"]],
+              },
+            ],
+          },
+        ],
+      },
+      meta: { revision: 1 },
+    });
+    expect(await readFile(planPath, "utf8")).toBe(before);
+    const discovered = JSON.parse((await runCli("commands")).stdout) as {
+      data: { commands: string[] };
+    };
+    expect(discovered.data.commands).toContain("survey --plan FILE");
+  });
+
+  it("writes a missing survey plan only to stderr", async () => {
+    const result = await runCli(
+      "survey",
+      "--plan",
+      join(tmpdir(), "house-plan-survey-missing.json"),
+    );
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "invalid_input" },
+    });
+  });
 });
