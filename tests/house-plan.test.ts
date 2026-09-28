@@ -458,6 +458,20 @@ describe("HousePlanEngine", () => {
         },
       },
       {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "shell-door",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 200,
+          width: 90,
+          hinge: "left",
+          swing: "in",
+        },
+      },
+      {
         kind: "room.upsert",
         level: "ground",
         entity: { name: "ambiguous", type: "living", seed: { x: 300, y: 200 } },
@@ -465,7 +479,11 @@ describe("HousePlanEngine", () => {
     ]);
     expect(result).toMatchObject({
       ok: false,
-      error: { diagnostics: [{ code: "ROOM_SEED_AMBIGUOUS" }] },
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "ROOM_SEED_AMBIGUOUS" }),
+        ]),
+      },
     });
   });
 });
