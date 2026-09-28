@@ -1,0 +1,70 @@
+[
+  { "kind": "level.upsert", "name": "ground", "elevationCm": 0, "order": 0 },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 600, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "east",
+      "a": { "x": 600, "y": 0 },
+      "b": { "x": 600, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "north",
+      "a": { "x": 600, "y": 400 },
+      "b": { "x": 0, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "west",
+      "a": { "x": 0, "y": 400 },
+      "b": { "x": 0, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "living",
+      "type": "living",
+      "seed": { "x": 300, "y": 200 }
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "entry",
+      "wall": "south",
+      "type": "door",
+      "variant": "single",
+      "offset": 255,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  }
+]

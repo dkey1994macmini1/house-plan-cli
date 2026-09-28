@@ -1,6 +1,10 @@
 import { WallSegment } from "./domain-objects.js";
-import type { Bounds, Opening, Point, Room, Storey, Wall } from "./model.js";
-import { type DerivedFace, DerivedTopology } from "./topology.js";
+import type { Opening, Point, Room, Storey, Wall } from "./model.js";
+import {
+  type DerivedFace,
+  DerivedTopology,
+  pointStrictlyInsideFace,
+} from "./topology.js";
 
 type SharedEdge = Readonly<{
   axis: "x" | "y";
@@ -54,9 +58,7 @@ export class StoreyCirculation {
   }
 
   faceForRoom(room: Room): DerivedFace | undefined {
-    return this.faces.find((face) =>
-      this.pointStrictlyInside(face.bounds, room.seed),
-    );
+    return this.faces.find((face) => pointStrictlyInsideFace(face, room.seed));
   }
 
   /** Doors and physical gaps that join two faces, or an exterior door to outside. */
@@ -85,45 +87,72 @@ export class StoreyCirculation {
     return undefined;
   }
 
-  private pointStrictlyInside(bounds: Bounds, point: Point): boolean {
-    return (
-      point.x > bounds.x &&
-      point.x < bounds.x + bounds.width &&
-      point.y > bounds.y &&
-      point.y < bounds.y + bounds.height
-    );
-  }
-
   private faceIndexAt(point: Point): number {
-    return this.faces.findIndex((face) =>
-      this.pointStrictlyInside(face.bounds, point),
-    );
+    return this.faces.findIndex((face) => pointStrictlyInsideFace(face, point));
   }
 
-  private sharedEdge(left: Bounds, right: Bounds): SharedEdge | undefined {
-    if (left.x + left.width === right.x || right.x + right.width === left.x) {
-      const start = Math.max(left.y, right.y);
-      const end = Math.min(left.y + left.height, right.y + right.height);
-      if (end > start)
-        return {
-          axis: "x",
-          coordinate: left.x + left.width === right.x ? right.x : left.x,
-          start,
-          end,
-        };
-    }
-    if (left.y + left.height === right.y || right.y + right.height === left.y) {
-      const start = Math.max(left.x, right.x);
-      const end = Math.min(left.x + left.width, right.x + right.width);
-      if (end > start)
-        return {
-          axis: "y",
-          coordinate: left.y + left.height === right.y ? right.y : left.y,
-          start,
-          end,
-        };
-    }
-    return undefined;
+  private sharedEdges(
+    left: DerivedFace,
+    right: DerivedFace,
+  ): readonly SharedEdge[] {
+    return left.vertices.flatMap<SharedEdge>((start, index) => {
+      const end = left.vertices[(index + 1) % left.vertices.length];
+      if (!end) return [];
+      return right.vertices.flatMap<SharedEdge>((otherStart, otherIndex) => {
+        const otherEnd =
+          right.vertices[(otherIndex + 1) % right.vertices.length];
+        if (!otherEnd) return [];
+        if (
+          start.x === end.x &&
+          otherStart.x === otherEnd.x &&
+          start.x === otherStart.x
+        ) {
+          const intervalStart = Math.max(
+            Math.min(start.y, end.y),
+            Math.min(otherStart.y, otherEnd.y),
+          );
+          const intervalEnd = Math.min(
+            Math.max(start.y, end.y),
+            Math.max(otherStart.y, otherEnd.y),
+          );
+          return intervalEnd > intervalStart
+            ? [
+                {
+                  axis: "x" as const,
+                  coordinate: start.x,
+                  start: intervalStart,
+                  end: intervalEnd,
+                },
+              ]
+            : [];
+        }
+        if (
+          start.y === end.y &&
+          otherStart.y === otherEnd.y &&
+          start.y === otherStart.y
+        ) {
+          const intervalStart = Math.max(
+            Math.min(start.x, end.x),
+            Math.min(otherStart.x, otherEnd.x),
+          );
+          const intervalEnd = Math.min(
+            Math.max(start.x, end.x),
+            Math.max(otherStart.x, otherEnd.x),
+          );
+          return intervalEnd > intervalStart
+            ? [
+                {
+                  axis: "y" as const,
+                  coordinate: start.y,
+                  start: intervalStart,
+                  end: intervalEnd,
+                },
+              ]
+            : [];
+        }
+        return [];
+      });
+    });
   }
 
   private wallInterval(wall: Wall, edge: SharedEdge): Interval | undefined {
@@ -175,15 +204,15 @@ export class StoreyCirculation {
       ) {
         const other = this.faces[otherIndex];
         if (!other) continue;
-        const edge = this.sharedEdge(face.bounds, other.bounds);
-        if (!edge) continue;
-        const widthCm = this.uncoveredLength(edge);
-        if (widthCm > 0)
-          links.push({
-            kind: "passage",
-            widthCm,
-            sides: [index, otherIndex],
-          });
+        for (const edge of this.sharedEdges(face, other)) {
+          const widthCm = this.uncoveredLength(edge);
+          if (widthCm > 0)
+            links.push({
+              kind: "passage",
+              widthCm,
+              sides: [index, otherIndex],
+            });
+        }
       }
     }
     return links;
@@ -222,26 +251,17 @@ export class StoreyCirculation {
     side: "lower" | "upper",
   ): number {
     const vertical = wall.a.x === wall.b.x;
-    return this.faces.findIndex(({ bounds }) => {
-      if (vertical) {
-        const onSide =
-          side === "lower"
-            ? bounds.x + bounds.width === midpoint.x
-            : bounds.x === midpoint.x;
-        return (
-          onSide &&
-          midpoint.y > bounds.y &&
-          midpoint.y < bounds.y + bounds.height
-        );
-      }
-      const onSide =
-        side === "lower"
-          ? bounds.y + bounds.height === midpoint.y
-          : bounds.y === midpoint.y;
-      return (
-        onSide && midpoint.x > bounds.x && midpoint.x < bounds.x + bounds.width
-      );
-    });
+    const offset = 0.01;
+    const point = vertical
+      ? {
+          x: midpoint.x + (side === "lower" ? -offset : offset),
+          y: midpoint.y,
+        }
+      : {
+          x: midpoint.x,
+          y: midpoint.y + (side === "lower" ? -offset : offset),
+        };
+    return this.faces.findIndex((face) => pointStrictlyInsideFace(face, point));
   }
 
   private buildGraph(): ReadonlyMap<number, ReadonlySet<number>> {

@@ -1,0 +1,152 @@
+[
+  { "kind": "level.upsert", "name": "ground", "elevationCm": 0, "order": 0 },
+  { "kind": "level.upsert", "name": "upper", "elevationCm": 280, "order": 1 },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "ground-south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 400, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "ground-east",
+      "a": { "x": 400, "y": 0 },
+      "b": { "x": 400, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "ground-north",
+      "a": { "x": 400, "y": 400 },
+      "b": { "x": 0, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "ground-west",
+      "a": { "x": 0, "y": 400 },
+      "b": { "x": 0, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "hall",
+      "type": "circulation",
+      "seed": { "x": 300, "y": 300 }
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "entry",
+      "wall": "ground-south",
+      "type": "door",
+      "variant": "single",
+      "offset": 250,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "stairs-up",
+      "run": "main",
+      "direction": "up",
+      "bounds": { "x": 100, "y": 100, "width": 90, "height": 200 }
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "upper-south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 400, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "upper-east",
+      "a": { "x": 400, "y": 0 },
+      "b": { "x": 400, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "upper-north",
+      "a": { "x": 400, "y": 400 },
+      "b": { "x": 0, "y": 400 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "upper-west",
+      "a": { "x": 0, "y": 400 },
+      "b": { "x": 0, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "landing",
+      "type": "circulation",
+      "seed": { "x": 300, "y": 300 }
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "stairs-down",
+      "run": "main",
+      "direction": "down",
+      "bounds": { "x": 100, "y": 100, "width": 90, "height": 200 }
+    }
+  },
+  {
+    "kind": "void.upsert",
+    "level": "upper",
+    "entity": {
+      "name": "stair-void",
+      "bounds": { "x": 100, "y": 100, "width": 90, "height": 200 }
+    }
+  }
+]

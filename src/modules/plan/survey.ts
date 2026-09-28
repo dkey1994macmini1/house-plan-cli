@@ -1,4 +1,5 @@
 import { StoreyCirculation } from "./circulation.js";
+import { StairOccurrence } from "./domain-objects.js";
 import type {
   Bounds,
   HousePlan,
@@ -11,7 +12,17 @@ import type {
   Storey,
   Void,
 } from "./model.js";
-import { boundsFromPoints } from "./topology.js";
+import {
+  type ConnectingStairRun,
+  connectingStairRuns,
+  type StairLanding,
+} from "./stair-runs.js";
+import {
+  boundsFromPoints,
+  type DerivedFace,
+  pointStrictlyInsideFace,
+  polygonAreaCm2,
+} from "./topology.js";
 
 export type SurveyOpening = Readonly<{
   name: string;
@@ -29,7 +40,7 @@ export type SurveyObject = Readonly<{
 }>;
 
 export type SurveyConnection = Readonly<{
-  kind: "door" | "passage";
+  kind: "door" | "passage" | "stair";
   widthCm: number;
   opening?: string;
   sides: readonly [readonly string[], readonly string[]];
@@ -52,6 +63,7 @@ export type SurveyFace = Readonly<{
   bounds: Bounds;
   areaCm2: number;
   rooms: readonly string[];
+  vertices?: readonly Point[];
 }>;
 
 export type SurveyStair = Readonly<{
@@ -88,10 +100,13 @@ export type PlanSurvey = Readonly<{
 
 const emptyBounds: Bounds = { x: 0, y: 0, width: 0, height: 0 };
 
-const faceId = (bounds: Bounds): string =>
-  `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+const isRectangularFace = (face: DerivedFace): boolean =>
+  face.vertices.length === 4;
 
-const areaCm2 = (bounds: Bounds): number => bounds.width * bounds.height;
+const faceId = (face: DerivedFace): string =>
+  isRectangularFace(face)
+    ? `${face.bounds.x},${face.bounds.y},${face.bounds.width},${face.bounds.height}`
+    : `polygon:${face.vertices.map((point) => `${point.x},${point.y}`).join(";")}`;
 
 const compareText = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
@@ -100,12 +115,6 @@ const byName = (
   left: { readonly name: string },
   right: { readonly name: string },
 ) => compareText(left.name, right.name);
-
-const strictlyInside = (bounds: Bounds, point: Point): boolean =>
-  point.x > bounds.x &&
-  point.x < bounds.x + bounds.width &&
-  point.y > bounds.y &&
-  point.y < bounds.y + bounds.height;
 
 const openingReading = (opening: Opening): SurveyOpening => ({
   name: opening.name,
@@ -160,7 +169,7 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
     const face = faces[index];
     if (!face) return [];
     return storey.rooms
-      .filter((room) => strictlyInside(face.bounds, room.seed))
+      .filter((room) => pointStrictlyInsideFace(face, room.seed))
       .toSorted(byName);
   };
   const sideLabels = (side: number | "outside"): readonly string[] => {
@@ -168,10 +177,10 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
     const face = faces[side];
     if (!face) return [];
     const names = roomsOnFace(side).map((room) => room.name);
-    return names.length > 0 ? names : [`face:${faceId(face.bounds)}`];
+    return names.length > 0 ? names : [`face:${faceId(face)}`];
   };
   const faceIndexAt = (point: Point): number =>
-    faces.findIndex((face) => strictlyInside(face.bounds, point));
+    faces.findIndex((face) => pointStrictlyInsideFace(face, point));
   const openingsTouching = (
     accept: (
       opening: Opening,
@@ -186,10 +195,11 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
       .toSorted(byName);
 
   const surveyedFaces: readonly SurveyFace[] = faces.map((face, index) => ({
-    id: faceId(face.bounds),
+    id: faceId(face),
     bounds: face.bounds,
-    areaCm2: areaCm2(face.bounds),
+    areaCm2: polygonAreaCm2(face.vertices),
     rooms: roomsOnFace(index).map((room) => room.name),
+    ...(isRectangularFace(face) ? {} : { vertices: face.vertices }),
   }));
   const rooms: readonly SurveyRoom[] = storey.rooms
     .toSorted(byName)
@@ -199,10 +209,10 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
       return {
         name: room.name,
         type: room.type,
-        faceId: face ? faceId(face.bounds) : null,
+        faceId: face ? faceId(face) : null,
         widthCm: face ? face.bounds.width : null,
         depthCm: face ? face.bounds.height : null,
-        areaCm2: face ? areaCm2(face.bounds) : null,
+        areaCm2: face ? polygonAreaCm2(face.vertices) : null,
         exteriorDoors:
           index >= 0
             ? openingsTouching(
@@ -278,15 +288,62 @@ const emptyLevel = (level: Level): SurveyLevel => ({
   voids: [],
 });
 
+/** `level:room` labels of the rooms a stair lands in; `level:face:<id>` when the face has no room. */
+const landingLabels = (landing: StairLanding): readonly string[] => {
+  const center = new StairOccurrence(landing.stair).center;
+  const face = new StoreyCirculation(landing.storey).faces.find((candidate) =>
+    pointStrictlyInsideFace(candidate, center),
+  );
+  if (!face) return [`${landing.level.name}:${landing.stair.name}`];
+  const rooms = landing.storey.rooms
+    .filter((room) => pointStrictlyInsideFace(face, room.seed))
+    .toSorted(byName)
+    .map((room) => `${landing.level.name}:${room.name}`);
+  return rooms.length > 0
+    ? rooms
+    : [`${landing.level.name}:face:${faceId(face)}`];
+};
+
+const stairConnection = (run: ConnectingStairRun): SurveyConnection => ({
+  kind: "stair",
+  widthCm: run.lower.stair.bounds.width,
+  opening: run.run,
+  sides: orderedSides(landingLabels(run.lower), landingLabels(run.upper)),
+});
+
+const withStairConnections = (
+  plan: HousePlan,
+  levels: readonly SurveyLevel[],
+): readonly SurveyLevel[] => {
+  const runs = connectingStairRuns(plan);
+  return levels.map((level) => ({
+    ...level,
+    connections: [
+      ...level.connections,
+      ...runs
+        .filter(
+          ({ lower, upper }) =>
+            lower.level.name === level.name || upper.level.name === level.name,
+        )
+        .map(stairConnection),
+    ].toSorted((left, right) =>
+      compareText(connectionOrder(left), connectionOrder(right)),
+    ),
+  }));
+};
+
 /** Compact spatial reading of a plan. Does not validate or modify it. */
-export const surveyPlan = (plan: HousePlan): PlanSurvey => ({
-  revision: plan.revision,
-  levels: plan.levels
+export const surveyPlan = (plan: HousePlan): PlanSurvey => {
+  const levels = plan.levels
     .toSorted((left, right) => left.order - right.order)
     .map((level) => {
       const storey = plan.storeys.find(
         (candidate) => candidate.levelId === level.id,
       );
       return storey ? surveyStorey(level, storey) : emptyLevel(level);
-    }),
-});
+    });
+  return {
+    revision: plan.revision,
+    levels: withStairConnections(plan, levels),
+  };
+};

@@ -27,9 +27,12 @@ export class UnknownLevelError extends Error {
   }
 }
 
-const assertNoDiagnostics = (plan: HousePlan): void => {
+const assertNoDiagnostics = (plan: HousePlan, allowInvalid = false): void => {
   const diagnostics = validate(plan);
-  if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
+  if (
+    !allowInvalid &&
+    diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  )
     throw new PlanValidationError(diagnostics);
 };
 
@@ -37,8 +40,9 @@ export const renderLevelToFile = async (
   plan: HousePlan,
   levelName: string,
   path: string,
+  allowInvalid = false,
 ): Promise<RenderedLevel> => {
-  assertNoDiagnostics(plan);
+  assertNoDiagnostics(plan, allowInvalid);
   const storey = findStorey(plan, levelName);
   if (!storey) throw new UnknownLevelError(levelName);
   await mkdir(dirname(path), { recursive: true });
@@ -58,8 +62,9 @@ const createManifest = (
 export const renderAllLevelsToDirectory = async (
   plan: HousePlan,
   directory: string,
+  allowInvalid = false,
 ): Promise<readonly RenderedLevel[]> => {
-  assertNoDiagnostics(plan);
+  assertNoDiagnostics(plan, allowInvalid);
   await mkdir(directory, { recursive: true });
   const files = await Promise.all(
     plan.levels
@@ -69,6 +74,7 @@ export const renderAllLevelsToDirectory = async (
           plan,
           level.name,
           join(directory, `${level.name}.svg`),
+          allowInvalid,
         ),
       ),
   );

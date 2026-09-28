@@ -4,7 +4,21 @@ import type {
   ResolvedStorey,
   Storey,
 } from "./model.js";
-import { boundsFromPoints, DerivedTopology } from "./topology.js";
+import {
+  boundsFromPoints,
+  DerivedTopology,
+  polygonAreaCm2,
+} from "./topology.js";
+
+const polygonPerimeterCm = (
+  vertices: readonly Readonly<{ x: number; y: number }>[],
+): number =>
+  vertices.reduce((perimeter, point, index) => {
+    const next = vertices[(index + 1) % vertices.length];
+    return next
+      ? perimeter + Math.abs(next.x - point.x) + Math.abs(next.y - point.y)
+      : perimeter;
+  }, 0);
 
 const resolveStorey = (storey: Storey): ResolvedStorey => {
   const topology = new DerivedTopology(storey.walls);
@@ -15,8 +29,8 @@ const resolveStorey = (storey: Storey): ResolvedStorey => {
           {
             ...room,
             bounds: face.bounds,
-            areaCm2: face.bounds.width * face.bounds.height,
-            perimeterCm: 2 * (face.bounds.width + face.bounds.height),
+            areaCm2: polygonAreaCm2(face.vertices),
+            perimeterCm: polygonPerimeterCm(face.vertices),
             face: face.vertices,
           },
         ]

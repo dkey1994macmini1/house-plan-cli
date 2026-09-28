@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Wall } from "../src/modules/plan/model.js";
 import {
+  DerivedTopology,
   danglingWallEndpoints,
   deriveSplitSegments,
   extractOrthogonalFaces,
+  faceContainingPoint,
 } from "../src/modules/plan/topology.js";
 
 const wall = (
@@ -13,6 +15,58 @@ const wall = (
 ): Wall => ({ id: name, name, a, b, thickness: 20, kind: "interior" });
 
 describe("derived orthogonal topology", () => {
+  it("derives one L-shaped face with its polygon area and seed", () => {
+    const walls = [
+      wall("south", { x: 0, y: 0 }, { x: 600, y: 0 }),
+      wall("east-lower", { x: 600, y: 0 }, { x: 600, y: 200 }),
+      wall("notch-south", { x: 600, y: 200 }, { x: 300, y: 200 }),
+      wall("notch-west", { x: 300, y: 200 }, { x: 300, y: 400 }),
+      wall("north", { x: 300, y: 400 }, { x: 0, y: 400 }),
+      wall("west", { x: 0, y: 400 }, { x: 0, y: 0 }),
+    ];
+
+    const faces = extractOrthogonalFaces(walls);
+
+    expect(faces).toEqual([
+      {
+        bounds: { x: 0, y: 0, width: 600, height: 400 },
+        vertices: [
+          { x: 0, y: 0 },
+          { x: 600, y: 0 },
+          { x: 600, y: 200 },
+          { x: 300, y: 200 },
+          { x: 300, y: 400 },
+          { x: 0, y: 400 },
+        ],
+      },
+    ]);
+    expect(faceContainingPoint(faces, { x: 100, y: 300 })).toBe(faces[0]);
+    expect(
+      new DerivedTopology(walls).hasFaceBoundaryAt({ x: 600, y: 300 }),
+    ).toBe(false);
+  });
+
+  it("keeps a rectangular face's bounds and vertices stable", () => {
+    const faces = extractOrthogonalFaces([
+      wall("south", { x: 0, y: 0 }, { x: 600, y: 0 }),
+      wall("east", { x: 600, y: 0 }, { x: 600, y: 400 }),
+      wall("north", { x: 600, y: 400 }, { x: 0, y: 400 }),
+      wall("west", { x: 0, y: 400 }, { x: 0, y: 0 }),
+    ]);
+
+    expect(faces).toEqual([
+      {
+        bounds: { x: 0, y: 0, width: 600, height: 400 },
+        vertices: [
+          { x: 0, y: 0 },
+          { x: 600, y: 0 },
+          { x: 600, y: 400 },
+          { x: 0, y: 400 },
+        ],
+      },
+    ]);
+  });
+
   it("virtually splits a crossing wall graph without modifying source walls", () => {
     const horizontal = wall("horizontal", { x: 0, y: 100 }, { x: 200, y: 100 });
     const vertical = wall("vertical", { x: 100, y: 0 }, { x: 100, y: 200 });
