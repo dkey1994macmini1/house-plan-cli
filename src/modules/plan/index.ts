@@ -29,4 +29,16 @@ export type {
 export { apply } from "./mutation.js";
 export { resolvePlan } from "./resolution.js";
 export { emptyPlan, failure, success } from "./result.js";
+export type {
+  PlanSurvey,
+  SurveyConnection,
+  SurveyFace,
+  SurveyLevel,
+  SurveyObject,
+  SurveyOpening,
+  SurveyRoom,
+  SurveyStair,
+  SurveyVoid,
+} from "./survey.js";
+export { surveyPlan } from "./survey.js";
 export { validate } from "./validation.js";

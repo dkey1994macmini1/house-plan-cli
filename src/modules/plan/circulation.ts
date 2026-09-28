@@ -1,5 +1,5 @@
 import { WallSegment } from "./domain-objects.js";
-import type { Bounds, Point, Room, Storey, Wall } from "./model.js";
+import type { Bounds, Opening, Point, Room, Storey, Wall } from "./model.js";
 import { type DerivedFace, DerivedTopology } from "./topology.js";
 
 type SharedEdge = Readonly<{
@@ -10,6 +10,15 @@ type SharedEdge = Readonly<{
 }>;
 
 type Interval = Readonly<{ start: number; end: number }>;
+
+export type FaceSide = number | "outside";
+
+export type StoreyAccess = Readonly<{
+  kind: "door" | "passage";
+  widthCm: number;
+  opening?: string;
+  sides: readonly [FaceSide, FaceSide];
+}>;
 
 /** Walkable face graph: doors and physical gaps, never windows or virtual walls. */
 export class StoreyCirculation {
@@ -48,6 +57,32 @@ export class StoreyCirculation {
     return this.faces.find((face) =>
       this.pointStrictlyInside(face.bounds, room.seed),
     );
+  }
+
+  /** Doors and physical gaps that join two faces, or an exterior door to outside. */
+  accesses(): readonly StoreyAccess[] {
+    return [...this.passageAccesses(), ...this.doorAccesses()];
+  }
+
+  /**
+   * Faces touched by an opening that fits its host wall.
+   * An exterior opening reports the interior face and `"outside"`.
+   */
+  sidesOf(opening: Opening): readonly [FaceSide, FaceSide] | undefined {
+    const wall = this.storey.walls.find(
+      (candidate) => candidate.name === opening.wall,
+    );
+    if (!wall) return undefined;
+    const host = new WallSegment(wall);
+    if (!host.containsOpening(opening)) return undefined;
+    const { start, end } = host.openingEndpoints(opening);
+    const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const lower = this.adjacentFace(wall, midpoint, "lower");
+    const upper = this.adjacentFace(wall, midpoint, "upper");
+    if (lower >= 0 && upper >= 0) return [lower, upper];
+    if (wall.kind === "exterior" && (lower >= 0 || upper >= 0))
+      return [Math.max(lower, upper), "outside"];
+    return undefined;
   }
 
   private pointStrictlyInside(bounds: Bounds, point: Point): boolean {
@@ -113,7 +148,7 @@ export class StoreyCirculation {
     return undefined;
   }
 
-  private hasPhysicalGap(edge: SharedEdge): boolean {
+  private uncoveredLength(edge: SharedEdge): number {
     const intervals = this.storey.walls
       .flatMap((wall) => {
         const interval = this.wallInterval(wall, edge);
@@ -121,12 +156,54 @@ export class StoreyCirculation {
       })
       .toSorted((left, right) => left.start - right.start);
     let coveredUntil = edge.start;
+    let gap = 0;
     for (const interval of intervals) {
-      if (interval.start > coveredUntil) return true;
+      if (interval.start > coveredUntil) gap += interval.start - coveredUntil;
       coveredUntil = Math.max(coveredUntil, interval.end);
-      if (coveredUntil >= edge.end) return false;
     }
-    return coveredUntil < edge.end;
+    if (coveredUntil < edge.end) gap += edge.end - coveredUntil;
+    return gap;
+  }
+
+  private passageAccesses(): readonly StoreyAccess[] {
+    const links: StoreyAccess[] = [];
+    for (const [index, face] of this.faces.entries()) {
+      for (
+        let otherIndex = index + 1;
+        otherIndex < this.faces.length;
+        otherIndex++
+      ) {
+        const other = this.faces[otherIndex];
+        if (!other) continue;
+        const edge = this.sharedEdge(face.bounds, other.bounds);
+        if (!edge) continue;
+        const widthCm = this.uncoveredLength(edge);
+        if (widthCm > 0)
+          links.push({
+            kind: "passage",
+            widthCm,
+            sides: [index, otherIndex],
+          });
+      }
+    }
+    return links;
+  }
+
+  private doorAccesses(): readonly StoreyAccess[] {
+    return this.storey.openings.flatMap((opening) => {
+      if (opening.type !== "door") return [];
+      const sides = this.sidesOf(opening);
+      return sides
+        ? [
+            {
+              kind: "door" as const,
+              widthCm: opening.width,
+              opening: opening.name,
+              sides,
+            },
+          ]
+        : [];
+    });
   }
 
   private connect(
@@ -139,40 +216,32 @@ export class StoreyCirculation {
     graph.get(right)?.add(left);
   }
 
-  private connectDoor(
-    graph: Map<number, Set<number>>,
+  private adjacentFace(
     wall: Wall,
     midpoint: Point,
-  ): void {
+    side: "lower" | "upper",
+  ): number {
     const vertical = wall.a.x === wall.b.x;
-    const adjacent = (side: "lower" | "upper"): number =>
-      this.faces.findIndex(({ bounds }) => {
-        if (vertical) {
-          const onSide =
-            side === "lower"
-              ? bounds.x + bounds.width === midpoint.x
-              : bounds.x === midpoint.x;
-          return (
-            onSide &&
-            midpoint.y > bounds.y &&
-            midpoint.y < bounds.y + bounds.height
-          );
-        }
+    return this.faces.findIndex(({ bounds }) => {
+      if (vertical) {
         const onSide =
           side === "lower"
-            ? bounds.y + bounds.height === midpoint.y
-            : bounds.y === midpoint.y;
+            ? bounds.x + bounds.width === midpoint.x
+            : bounds.x === midpoint.x;
         return (
           onSide &&
-          midpoint.x > bounds.x &&
-          midpoint.x < bounds.x + bounds.width
+          midpoint.y > bounds.y &&
+          midpoint.y < bounds.y + bounds.height
         );
-      });
-    const first = adjacent("lower");
-    const second = adjacent("upper");
-    if (first >= 0 && second >= 0) this.connect(graph, first, second);
-    else if (wall.kind === "exterior" && (first >= 0 || second >= 0))
-      this.connect(graph, Math.max(first, second), this.outside);
+      }
+      const onSide =
+        side === "lower"
+          ? bounds.y + bounds.height === midpoint.y
+          : bounds.y === midpoint.y;
+      return (
+        onSide && midpoint.x > bounds.x && midpoint.x < bounds.x + bounds.width
+      );
+    });
   }
 
   private buildGraph(): ReadonlyMap<number, ReadonlySet<number>> {
@@ -182,32 +251,13 @@ export class StoreyCirculation {
         new Set<number>(),
       ]),
     );
-    for (const [index, face] of this.faces.entries()) {
-      for (
-        let otherIndex = index + 1;
-        otherIndex < this.faces.length;
-        otherIndex++
-      ) {
-        const other = this.faces[otherIndex];
-        if (!other) continue;
-        const edge = this.sharedEdge(face.bounds, other.bounds);
-        if (edge && this.hasPhysicalGap(edge))
-          this.connect(graph, index, otherIndex);
-      }
-    }
-    for (const opening of this.storey.openings) {
-      if (opening.type !== "door") continue;
-      const wall = this.storey.walls.find(
-        (candidate) => candidate.name === opening.wall,
+    for (const access of this.accesses()) {
+      const [left, right] = access.sides;
+      this.connect(
+        graph,
+        left === "outside" ? this.outside : left,
+        right === "outside" ? this.outside : right,
       );
-      if (!wall) continue;
-      const host = new WallSegment(wall);
-      if (!host.containsOpening(opening)) continue;
-      const { start, end } = host.openingEndpoints(opening);
-      this.connectDoor(graph, wall, {
-        x: (start.x + end.x) / 2,
-        y: (start.y + end.y) / 2,
-      });
     }
     return graph;
   }

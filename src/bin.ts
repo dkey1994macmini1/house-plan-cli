@@ -22,6 +22,7 @@ import {
   failure,
   resolvePlan,
   success,
+  surveyPlan,
   validate,
 } from "./modules/plan/index.js";
 import {
@@ -251,6 +252,25 @@ const reportHandler = ({ plan: planPath }: { readonly plan: string }) =>
     );
   });
 
+const surveyHandler = ({ plan: planPath }: { readonly plan: string }) =>
+  Effect.gen(function* () {
+    const plan = yield* loadPlanFromDisk(planPath);
+    const diagnostics = validate(plan);
+    const survey = surveyPlan(plan);
+    yield* writeSuccess(
+      "plan.survey",
+      {
+        revision: survey.revision,
+        valid: !diagnostics.some(
+          (diagnostic) => diagnostic.severity === "error",
+        ),
+        levels: survey.levels,
+      },
+      plan.revision,
+      diagnostics,
+    );
+  });
+
 const renderHandler = ({
   plan: planPath,
   level,
@@ -356,6 +376,7 @@ const commandsHandler = () =>
       "render --plan FILE --level LEVEL --out FILE",
       "render --plan FILE --all-levels --out-dir DIR",
       "report --plan FILE",
+      "survey --plan FILE",
       "commands",
       "schema",
     ],
@@ -428,7 +449,21 @@ const reportCommand = Command.make(
   "report",
   { plan: Options.file("plan") },
   reportHandler,
-).pipe(Command.withDescription("Print the resolved plan plus diagnostics."));
+).pipe(
+  Command.withDescription(
+    "Print the resolved plan plus diagnostics. Prefer survey for a compact spatial reading.",
+  ),
+);
+
+const surveyCommand = Command.make(
+  "survey",
+  { plan: Options.file("plan") },
+  surveyHandler,
+).pipe(
+  Command.withDescription(
+    "Print a compact spatial reading: rooms, unique areas, openings, and connections.",
+  ),
+);
 
 const commandsCommand = Command.make("commands", {}, commandsHandler).pipe(
   Command.withDescription("List command grammar and exit-code semantics."),
@@ -448,6 +483,7 @@ const housePlanCommand = Command.make("house-plan").pipe(
     validateCommand,
     renderCommand,
     reportCommand,
+    surveyCommand,
     commandsCommand,
     schemaCommand,
   ]),
