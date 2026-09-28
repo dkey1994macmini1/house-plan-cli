@@ -1,0 +1,328 @@
+[
+  { "kind": "level.upsert", "name": "parter", "elevationCm": 0, "order": 0 },
+  { "kind": "level.upsert", "name": "pietro", "elevationCm": 280, "order": 1 },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "north",
+      "a": { "x": 0, "y": 1100 },
+      "b": { "x": 900, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "south",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 900, "y": 0 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "west",
+      "a": { "x": 0, "y": 0 },
+      "b": { "x": 0, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "east",
+      "a": { "x": 900, "y": 0 },
+      "b": { "x": 900, "y": 1100 },
+      "thickness": 20,
+      "kind": "exterior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-divider",
+      "a": { "x": 0, "y": 750 },
+      "b": { "x": 900, "y": 750 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-divider",
+      "a": { "x": 0, "y": 400 },
+      "b": { "x": 900, "y": 400 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living-divider",
+      "a": { "x": 500, "y": 0 },
+      "b": { "x": 500, "y": 400 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "upper-divider",
+      "a": { "x": 500, "y": 400 },
+      "b": { "x": 500, "y": 1100 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen",
+      "type": "kitchen",
+      "seed": { "x": 250, "y": 925 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining",
+      "type": "dining",
+      "seed": { "x": 450, "y": 575 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-1",
+      "type": "bedroom",
+      "seed": { "x": 250, "y": 200 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living",
+      "type": "living",
+      "seed": { "x": 700, "y": 200 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bath-hall",
+      "type": "bathroom",
+      "seed": { "x": 700, "y": 575 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "stair-hall",
+      "type": "circulation",
+      "seed": { "x": 700, "y": 925 }
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-to-dining",
+      "wall": "kitchen-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-bedroom",
+      "wall": "bedroom-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 80,
+      "hinge": "right",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-bath",
+      "wall": "upper-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 180,
+      "width": 70,
+      "hinge": "left",
+      "swing": "out"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-to-stairs",
+      "wall": "upper-divider",
+      "type": "door",
+      "variant": "single",
+      "offset": 500,
+      "width": 80,
+      "hinge": "right",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "front-door",
+      "wall": "south",
+      "type": "door",
+      "variant": "single",
+      "offset": 650,
+      "width": 90,
+      "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "kitchen-window",
+      "wall": "north",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 180,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living-window",
+      "wall": "east",
+      "type": "window",
+      "variant": "casement",
+      "offset": 120,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bedroom-window",
+      "wall": "west",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 130,
+      "width": 140
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "bath-window",
+      "wall": "east",
+      "type": "window",
+      "variant": "tilt-turn",
+      "offset": 520,
+      "width": 100
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "porch-window",
+      "wall": "south",
+      "type": "window",
+      "variant": "fixed",
+      "offset": 150,
+      "width": 140
+    }
+  },
+  {
+    "kind": "object.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "dining-table",
+      "label": "Stół",
+      "center": { "x": 350, "y": 680 },
+      "width": 180,
+      "depth": 90,
+      "rotation": 0
+    }
+  },
+  {
+    "kind": "object.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "sofa",
+      "label": "Sofa",
+      "center": { "x": 700, "y": 300 },
+      "width": 180,
+      "depth": 80,
+      "rotation": 0
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "stairs-up",
+      "run": "main-stairs",
+      "direction": "up",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  },
+  {
+    "kind": "void.upsert",
+    "level": "pietro",
+    "entity": {
+      "name": "stairs-void",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  },
+  {
+    "kind": "stair.upsert",
+    "level": "pietro",
+    "entity": {
+      "name": "stairs-down",
+      "run": "main-stairs",
+      "direction": "down",
+      "bounds": { "x": 720, "y": 760, "width": 140, "height": 260 }
+    }
+  }
+]

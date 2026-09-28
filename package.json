@@ -4,12 +4,16 @@
   "private": true,
   "description": "Deterministic 2D house-plan geometry and validation CLI for LLM agents.",
   "type": "module",
+  "bin": {
+    "house-plan": "./dist/bin.js"
+  },
   "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "cli": "tsx src/bin.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
