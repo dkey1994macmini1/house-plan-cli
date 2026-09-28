@@ -100,9 +100,14 @@ export type Failure = Readonly<{
   ok: false;
   schemaVersion: 1;
   error: Readonly<{
-    type: string;
+    type: "invalid_input" | "revision_conflict" | "not_found" | "internal";
     message: string;
     hint: string;
     diagnostics?: readonly Diagnostic[];
   }>;
 }>;
+export type FailureType =
+  | "invalid_input"
+  | "revision_conflict"
+  | "not_found"
+  | "internal";

@@ -1,7 +1,13 @@
-import type { Diagnostic, Envelope, Failure, HousePlan } from "./model.js";
+import type {
+  Diagnostic,
+  Envelope,
+  Failure,
+  FailureType,
+  HousePlan,
+} from "./model.js";
 
 export const failure = (
-  type: string,
+  type: FailureType,
   message: string,
   hint: string,
   diagnostics?: readonly Diagnostic[],

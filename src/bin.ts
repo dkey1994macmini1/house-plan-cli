@@ -172,14 +172,16 @@ const applyHandler = ({
     const plan = yield* loadPlanFromDisk(planPath);
     const result = apply(plan, expectedRevision.value, decoded.right);
     if ("ok" in result) {
-      const exitCode: 2 | 5 =
+      const exitCode: 1 | 2 | 5 =
         result.error.type === "revision_conflict" ||
         result.error.type === "not_found"
           ? 5
-          : 2;
+          : result.error.type === "internal"
+            ? 1
+            : 2;
       yield* fail(
         new CommandError({
-          type: exitCode === 5 ? "revision_conflict" : "invalid_input",
+          type: result.error.type,
           message: result.error.message,
           hint: result.error.hint,
           ...(result.error.diagnostics !== undefined

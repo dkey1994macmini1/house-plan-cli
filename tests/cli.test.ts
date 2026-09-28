@@ -71,6 +71,48 @@ describe("house-plan executable", () => {
       revision: 0,
     });
   });
+  it("reports missing levels as not_found rather than revision_conflict", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "house-plan-missing-level-"),
+    );
+    const planPath = join(directory, "plan.json");
+    const operationsPath = join(directory, "operations.json");
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+    const original = await readFile(planPath, "utf8");
+    await writeFile(
+      operationsPath,
+      JSON.stringify([
+        {
+          kind: "wall.upsert",
+          level: "missing",
+          entity: {
+            name: "wall",
+            a: { x: 0, y: 0 },
+            b: { x: 100, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+      ]),
+      "utf8",
+    );
+    const result = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      operationsPath,
+      "--expected-revision",
+      "0",
+    );
+    expect(result).toMatchObject({ status: 5, stdout: "" });
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "not_found", message: "Unknown level 'missing'" },
+    });
+    expect(await readFile(planPath, "utf8")).toBe(original);
+  });
+
   it("keeps parser failures on a single structured stderr line", async () => {
     for (const args of [
       ["not-command"],
