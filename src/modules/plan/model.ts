@@ -1,3 +1,5 @@
+import type { OperationList } from "./schema.js";
+
 export type Point = Readonly<{ x: number; y: number }>;
 export type Bounds = Readonly<{
   x: number;
@@ -86,7 +88,7 @@ export type ResolvedStorey = Omit<Storey, "rooms"> &
   Readonly<{ rooms: readonly ResolvedRoom[]; bounds: Bounds }>;
 export type ResolvedPlan = Omit<HousePlan, "storeys"> &
   Readonly<{ storeys: readonly ResolvedStorey[] }>;
-export type Operation = Readonly<Record<string, unknown>>;
+export type Operation = OperationList[number];
 export type Envelope<T> = Readonly<{
   ok: true;
   type: string;

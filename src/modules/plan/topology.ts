@@ -163,11 +163,60 @@ const hasInteriorWall = (
     return horizontalInside || verticalInside;
   });
 
-/** Extracts maximal rectangular faces bounded by authored orthogonal walls. */
+/**
+ * A free end of an interior stub can mark an open-plan room boundary. Extend
+ * its axis to the nearest perpendicular authored wall for zoning only; the
+ * extension is never persisted, rendered as a wall, or treated as a barrier.
+ */
+const zoningExtensions = (walls: readonly Wall[]): readonly Wall[] => {
+  const segments = deriveSplitSegments(walls);
+  return walls.flatMap((wall) => {
+    if (wall.kind !== "interior" || (!isHorizontal(wall) && !isVertical(wall)))
+      return [];
+    return endpoints(wall).flatMap((tip, index) => {
+      if (
+        segments.filter((segment) => segmentTouchesPoint(segment, tip))
+          .length !== 1
+      )
+        return [];
+      const other = endpoints(wall)[1 - index];
+      if (!other) return [];
+      const dx = Math.sign(tip.x - other.x);
+      const dy = Math.sign(tip.y - other.y);
+      const targets = walls.flatMap((candidate) => {
+        if (isHorizontal(wall) === isHorizontal(candidate)) return [];
+        const crossing = isHorizontal(wall)
+          ? { x: candidate.a.x, y: tip.y }
+          : { x: tip.x, y: candidate.a.y };
+        if (
+          !between(crossing.x, candidate.a.x, candidate.b.x) ||
+          !between(crossing.y, candidate.a.y, candidate.b.y)
+        )
+          return [];
+        const distance = (crossing.x - tip.x) * dx + (crossing.y - tip.y) * dy;
+        return distance > 0 ? [{ crossing, distance }] : [];
+      });
+      const nearest = targets.toSorted((a, b) => a.distance - b.distance)[0];
+      return nearest
+        ? [
+            {
+              ...wall,
+              id: `zoning:${wall.id}:${index}`,
+              name: `zoning:${wall.name}:${index}`,
+              a: tip,
+              b: nearest.crossing,
+            },
+          ]
+        : [];
+    });
+  });
+};
+
+/** Extracts rectangular zoning faces; partial walls may mark open boundaries. */
 export const extractOrthogonalFaces = (
   walls: readonly Wall[],
 ): readonly DerivedFace[] => {
-  const segments = deriveSplitSegments(walls);
+  const segments = deriveSplitSegments([...walls, ...zoningExtensions(walls)]);
   const points = segments.flatMap((segment) => [segment.start, segment.end]);
   const xs = [...new Set(points.map((point) => point.x))].toSorted(
     (left, right) => left - right,
@@ -201,10 +250,10 @@ export const faceContainingPoint = (
 ): DerivedFace | undefined =>
   faces.find(
     (face) =>
-      point.x > face.bounds.x &&
-      point.x < face.bounds.x + face.bounds.width &&
-      point.y > face.bounds.y &&
-      point.y < face.bounds.y + face.bounds.height,
+      point.x >= face.bounds.x &&
+      point.x <= face.bounds.x + face.bounds.width &&
+      point.y >= face.bounds.y &&
+      point.y <= face.bounds.y + face.bounds.height,
   );
 
 const pointsEqual = (left: Point, right: Point): boolean =>

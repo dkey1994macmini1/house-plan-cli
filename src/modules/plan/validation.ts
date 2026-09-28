@@ -124,6 +124,34 @@ const validateRoomSeeds = (storey: Storey): readonly Diagnostic[] => {
   });
 };
 
+const sharedBoundaryLength = (
+  host: Storey["walls"][number],
+  bounds: { x: number; y: number; width: number; height: number },
+): number => {
+  const horizontal = host.a.y === host.b.y;
+  const vertical = host.a.x === host.b.x;
+  if (horizontal) {
+    if (host.a.y !== bounds.y && host.a.y !== bounds.y + bounds.height)
+      return 0;
+    const left = Math.max(bounds.x, Math.min(host.a.x, host.b.x));
+    const right = Math.min(
+      bounds.x + bounds.width,
+      Math.max(host.a.x, host.b.x),
+    );
+    return Math.max(0, right - left);
+  }
+  if (vertical) {
+    if (host.a.x !== bounds.x && host.a.x !== bounds.x + bounds.width) return 0;
+    const bottom = Math.max(bounds.y, Math.min(host.a.y, host.b.y));
+    const top = Math.min(
+      bounds.y + bounds.height,
+      Math.max(host.a.y, host.b.y),
+    );
+    return Math.max(0, top - bottom);
+  }
+  return 0;
+};
+
 const wallBordersFace = (
   wall: Storey["walls"][number],
   bounds: { x: number; y: number; width: number; height: number },
@@ -142,26 +170,37 @@ const wallBordersFace = (
   );
 };
 
+const faceHasPassThrough = (
+  face: { bounds: { x: number; y: number; width: number; height: number } },
+  storey: Storey,
+): boolean => {
+  const wallLength = storey.walls
+    .filter((wall) => sharedBoundaryLength(wall, face.bounds) > 0)
+    .reduce((sum, wall) => sum + sharedBoundaryLength(wall, face.bounds), 0);
+  const perimeter = 2 * (face.bounds.width + face.bounds.height);
+  return perimeter - wallLength > 0;
+};
+
 const validateRoomAccess = (storey: Storey): readonly Diagnostic[] => {
   const topology = new DerivedTopology(storey.walls);
   return storey.rooms.flatMap((room) => {
     const face = topology.faceContaining(room.seed);
     if (!face) return [];
+    const passThrough = faceHasPassThrough(face, storey);
     const hasDoor = storey.openings.some((opening) => {
       const host =
         opening.type === "door" ? named(storey.walls, opening.wall) : undefined;
       return host !== undefined && wallBordersFace(host, face.bounds);
     });
-    return hasDoor
-      ? []
-      : [
-          error(
-            "ROOM_WITHOUT_DOOR",
-            `Room '${room.name}' has no door on its derived boundary`,
-            { room: room.name },
-            "Add a hosted door opening on a wall bordering this room.",
-          ),
-        ];
+    if (hasDoor || passThrough) return [];
+    return [
+      error(
+        "ROOM_WITHOUT_DOOR",
+        `Room '${room.name}' has no door or pass-through on its derived boundary`,
+        { room: room.name },
+        "Add a hosted door opening on a wall bordering this room, or leave one boundary edge open (open-plan).",
+      ),
+    ];
   });
 };
 
@@ -287,9 +326,8 @@ const validateObjects = (storey: Storey): readonly Diagnostic[] =>
 const validateDoorSwingCollisions = (storey: Storey): readonly Diagnostic[] =>
   storey.openings.flatMap((opening) => {
     const host = named(storey.walls, opening.wall);
-    const swing = host
-      ? new WallSegment(host).doorSwingBounds(opening)
-      : undefined;
+    if (!host) return [];
+    const swing = new WallSegment(host).doorSwingBounds(opening);
     if (!swing) return [];
     return storey.objects.flatMap((object) => {
       const subject = new PlanObject(object);

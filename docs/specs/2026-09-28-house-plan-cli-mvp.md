@@ -84,8 +84,9 @@ Plan obsługuje wiele niezależnych kondygnacji 2D. Każda kondygnacja zawiera o
 - Source walls must be horizontal or vertical and have non-zero length.
 - The engine derives a split wall graph at valid intersections and T-junctions. It does not materialize split segments back into the source document.
 - A small bespoke orthogonal geometry kernel owns segment intersection, containment, collision and face extraction. General polygon boolean geometry is out of scope.
-- A room has a name, a semantic type and a seed point. It resolves to exactly one derived closed face; its polygon, dimensions, area and perimeter are derived data.
-- Drafts may have dangling/open wall structures as warnings; plans requiring final validity cannot.
+- A room has a name, semantic type and seed point. It resolves to exactly one derived rectangular zoning face; its polygon, dimensions, area and perimeter are derived data.
+- An incomplete *interior* wall can delimit two open-plan zones: for face derivation alone, a free endpoint extends on its own axis to the nearest perpendicular authored wall. This virtual extension is neither persisted nor rendered as a physical wall; the uncovered boundary remains a pass-through. A room seed still must lie strictly inside one zone. This is not general non-rectangular face extraction or silent repair of authored geometry.
+- Dangling endpoints can remain in the authored wall graph (for intentional passages). Topology reports them; missing or ambiguous room faces remain validation errors.
 
 ### Openings and objects
 

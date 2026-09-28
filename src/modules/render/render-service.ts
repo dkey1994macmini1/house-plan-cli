@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { HousePlan } from "../plan/model.js";
+import type { Diagnostic, HousePlan } from "../plan/model.js";
 import { validate } from "../plan/validation.js";
 import { renderSvg } from "./svg-renderer.js";
 
@@ -13,10 +13,24 @@ const findStorey = (plan: HousePlan, levelName: string) => {
     : undefined;
 };
 
-const throwWhenPlanHasErrors = (plan: HousePlan): void => {
+export class PlanValidationError extends Error {
+  constructor(readonly diagnostics: readonly Diagnostic[]) {
+    super(JSON.stringify(diagnostics));
+    this.name = "PlanValidationError";
+  }
+}
+
+export class UnknownLevelError extends Error {
+  constructor(readonly level: string) {
+    super(`Unknown level '${level}'`);
+    this.name = "UnknownLevelError";
+  }
+}
+
+const assertNoDiagnostics = (plan: HousePlan): void => {
   const diagnostics = validate(plan);
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
-    throw new Error(JSON.stringify(diagnostics));
+    throw new PlanValidationError(diagnostics);
 };
 
 export const renderLevelToFile = async (
@@ -24,9 +38,9 @@ export const renderLevelToFile = async (
   levelName: string,
   path: string,
 ): Promise<RenderedLevel> => {
-  throwWhenPlanHasErrors(plan);
+  assertNoDiagnostics(plan);
   const storey = findStorey(plan, levelName);
-  if (!storey) throw new Error(`Unknown level '${levelName}'`);
+  if (!storey) throw new UnknownLevelError(levelName);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, renderSvg(plan, storey), "utf8");
   return { level: levelName, path };
@@ -45,7 +59,7 @@ export const renderAllLevelsToDirectory = async (
   plan: HousePlan,
   directory: string,
 ): Promise<readonly RenderedLevel[]> => {
-  throwWhenPlanHasErrors(plan);
+  assertNoDiagnostics(plan);
   await mkdir(directory, { recursive: true });
   const files = await Promise.all(
     plan.levels

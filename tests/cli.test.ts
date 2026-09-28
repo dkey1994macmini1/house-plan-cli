@@ -38,7 +38,7 @@ describe("house-plan executable", () => {
     };
     expect(result).toMatchObject({ status: 0, stderr: "" });
     expect(envelope.ok).toBe(true);
-    expect(envelope.data["$schema"]).toBe(
+    expect(envelope.data.$schema).toBe(
       "http://json-schema.org/draft-07/schema#",
     );
   });
@@ -69,6 +69,153 @@ describe("house-plan executable", () => {
     });
     expect(JSON.parse(await readFile(plan, "utf8"))).toMatchObject({
       revision: 0,
+    });
+  });
+  it("keeps parser failures on a single structured stderr line", async () => {
+    for (const args of [
+      ["not-command"],
+      [
+        "apply",
+        "--plan",
+        "missing.json",
+        "--input",
+        "missing.json",
+        "--expected-revision",
+        "nope",
+      ],
+    ]) {
+      const result = await runCli(...args);
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe("");
+      const lines = result.stderr.trim().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? "")).toMatchObject({
+        ok: false,
+        error: { type: "invalid_input" },
+      });
+    }
+  });
+
+  it("applies and renders the open-plan reference with a direct stair-to-dining entry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "house-plan-reference-"));
+    const planPath = join(directory, "plan.json");
+    const svgPath = join(directory, "ground.svg");
+    const operations = JSON.parse(
+      await readFile(
+        join(root, "examples/reference-ground-floor-ops.json"),
+        "utf8",
+      ),
+    ) as Array<{
+      kind: string;
+      level?: string;
+      entity?: {
+        name?: string;
+        wall?: string;
+        a?: { x: number; y: number };
+        b?: { x: number; y: number };
+      };
+    }>;
+    expect(operations).toContainEqual(
+      expect.objectContaining({
+        kind: "opening.upsert",
+        entity: expect.objectContaining({
+          name: "stair-dining-door",
+          wall: "stair-north",
+        }),
+      }),
+    );
+    expect(operations).toContainEqual(
+      expect.objectContaining({
+        kind: "wall.upsert",
+        entity: expect.objectContaining({
+          name: "dining-living-stub",
+          b: { x: 600, y: 560 },
+        }),
+      }),
+    );
+    expect(
+      operations.some(
+        (operation) => operation.entity?.wall === "dining-living-stub",
+      ),
+    ).toBe(false);
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+    const applied = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      join(root, "examples/reference-ground-floor-ops.json"),
+      "--expected-revision",
+      "0",
+    );
+    expect(applied).toMatchObject({ status: 0, stderr: "" });
+    const report = await runCli("report", "--plan", planPath);
+    expect(report.status).toBe(0);
+    const envelope = JSON.parse(report.stdout) as {
+      data: {
+        valid: boolean;
+        plan: {
+          storeys: Array<{
+            rooms: Array<{
+              name: string;
+              bounds: { x: number; width: number };
+            }>;
+          }>;
+        };
+      };
+    };
+    expect(envelope.data.valid).toBe(true);
+    const ground = envelope.data.plan.storeys[0];
+    expect(
+      ground?.rooms.find((room) => room.name === "dining")?.bounds,
+    ).toMatchObject({ x: 350, width: 250 });
+    expect(
+      ground?.rooms.find((room) => room.name === "living")?.bounds,
+    ).toMatchObject({ x: 600, width: 300 });
+    const render = await runCli(
+      "render",
+      "--plan",
+      planPath,
+      "--level",
+      "ground",
+      "--out",
+      svgPath,
+    );
+    expect(render).toMatchObject({ status: 0, stderr: "" });
+    const svg = await readFile(svgPath, "utf8");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('x1="600" y1="-500" x2="600" y2="-560"');
+    expect(svg).not.toContain('x1="600" y1="-560" x2="600" y2="-800"');
+    const unknown = await runCli(
+      "render",
+      "--plan",
+      planPath,
+      "--level",
+      "missing",
+      "--out",
+      join(directory, "missing.svg"),
+    );
+    expect(unknown).toMatchObject({ status: 5, stdout: "" });
+    expect(JSON.parse(unknown.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "not_found" },
+    });
+    const conflict = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      join(root, "examples/reference-ground-floor-ops.json"),
+      "--expected-revision",
+      "0",
+    );
+    expect(conflict).toMatchObject({ status: 5, stdout: "" });
+    expect(JSON.parse(conflict.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "revision_conflict" },
+    });
+    expect(JSON.parse(await readFile(planPath, "utf8"))).toMatchObject({
+      revision: 1,
     });
   });
 });

@@ -49,6 +49,30 @@ describe("derived orthogonal topology", () => {
     });
   });
 
+  it("derives distinct zones across an incomplete wall without creating a physical wall", () => {
+    const walls = [
+      wall("south", { x: 0, y: 0 }, { x: 900, y: 0 }),
+      wall("north", { x: 0, y: 600 }, { x: 900, y: 600 }),
+      wall("west", { x: 0, y: 0 }, { x: 0, y: 600 }),
+      wall("east", { x: 900, y: 0 }, { x: 900, y: 600 }),
+      wall("divider-stub", { x: 450, y: 0 }, { x: 450, y: 100 }),
+    ];
+    const faces = extractOrthogonalFaces(walls);
+    expect(faces.map((face) => face.bounds)).toEqual([
+      { x: 0, y: 0, width: 450, height: 600 },
+      { x: 450, y: 0, width: 450, height: 600 },
+    ]);
+    expect(
+      deriveSplitSegments(walls).some(
+        (segment) =>
+          segment.start.x === 450 &&
+          segment.start.y === 100 &&
+          segment.end.y === 600,
+      ),
+    ).toBe(false);
+    expect(danglingWallEndpoints(walls)).toContainEqual({ x: 450, y: 100 });
+  });
+
   it("reports endpoint geometry that remains dangling after intersection splitting", () => {
     const walls = [
       wall("horizontal", { x: 0, y: 100 }, { x: 200, y: 100 }),

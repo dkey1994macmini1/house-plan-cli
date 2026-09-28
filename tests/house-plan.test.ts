@@ -6,7 +6,8 @@ import {
   resolvePlan,
   validate,
 } from "../src/house-plan.js";
-import { hasGridMeasurements } from "../src/modules/plan/schema.js";
+import type { Operation } from "../src/modules/plan/model.js";
+import { decodeOperations } from "../src/modules/plan/schema.js";
 import { renderStairsLayer } from "../src/modules/render/circulation-layer.js";
 
 const rectangle = (
@@ -64,7 +65,7 @@ const rectangle = (
     },
   ] as const;
 
-const applied = (operations: readonly Record<string, unknown>[]) => {
+const applied = (operations: readonly Operation[]) => {
   const result = apply(emptyPlan(), 0, operations);
   if ("ok" in result) throw new Error(result.error.message);
   return result;
@@ -112,7 +113,7 @@ describe("HousePlanEngine", () => {
         level: "ground",
         entity: { name: "living", type: "living", seed: { x: 10, y: 10 } },
       },
-    ];
+    ] satisfies readonly Operation[];
     const result = apply(emptyPlan(), 0, operations);
     expect(result).toMatchObject({
       ok: false,
@@ -426,7 +427,7 @@ describe("HousePlanEngine", () => {
 
   it("rejects measurements outside the public 0.1 cm grid at input boundary", () => {
     expect(
-      hasGridMeasurements([
+      decodeOperations([
         {
           kind: "wall.upsert",
           level: "ground",
@@ -438,8 +439,8 @@ describe("HousePlanEngine", () => {
             kind: "exterior",
           },
         },
-      ]),
-    ).toBe(false);
+      ])._tag,
+    ).toBe("Left");
   });
 
   it("rejects a room seed placed on a shared derived face boundary", () => {

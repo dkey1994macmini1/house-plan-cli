@@ -22,18 +22,10 @@ const replace = <T extends Named>(
   ...values.filter((candidate) => candidate.name !== value.name),
   value,
 ];
-const asNamedEntity = <T extends Named>(value: unknown): T | undefined =>
-  value &&
-  typeof value === "object" &&
-  typeof (value as { name?: unknown }).name === "string"
-    ? ({
-        ...(value as object),
-        id:
-          typeof (value as { id?: unknown }).id === "string"
-            ? (value as { id: string }).id
-            : newId(),
-      } as T)
-    : undefined;
+const withId = <T extends { readonly name: string }>(
+  entity: T,
+  previous?: Named,
+): T & Named => ({ ...entity, id: previous?.id ?? newId() });
 const emptyStorey = (levelId: string): Storey => ({
   id: newId(),
   levelId,
@@ -49,29 +41,14 @@ const emptyStorey = (levelId: string): Storey => ({
 
 const upsertLevel = (
   plan: HousePlan,
-  operation: Operation,
-): HousePlan | Failure => {
-  const name = String(operation.name ?? "");
-  if (!name)
-    return failure(
-      "invalid_input",
-      "level.upsert requires name",
-      "Provide a non-empty level name.",
-    );
-  const elevationCm = operation.elevationCm;
-  const order = operation.order;
-  if (typeof elevationCm !== "number" || typeof order !== "number")
-    return failure(
-      "invalid_input",
-      "level.upsert requires numeric elevationCm and order",
-      "Pass finite numeric centimetres and an integer level order.",
-    );
-  const previous = named(plan.levels, name);
+  operation: Extract<Operation, { readonly kind: "level.upsert" }>,
+): HousePlan => {
+  const previous = named(plan.levels, operation.name);
   const level: Level = {
     id: previous?.id ?? newId(),
-    name,
-    elevationCm,
-    order,
+    name: operation.name,
+    elevationCm: operation.elevationCm,
+    order: operation.order,
   };
   return {
     ...plan,
@@ -80,53 +57,17 @@ const upsertLevel = (
   };
 };
 
-const resourceKey = (
-  kind: string,
-):
-  | keyof Pick<
-      Storey,
-      | "walls"
-      | "rooms"
-      | "openings"
-      | "objects"
-      | "stairs"
-      | "voids"
-      | "annotations"
-      | "dimensions"
-    >
-  | undefined =>
-  (
-    ({
-      "wall.upsert": "walls",
-      "room.upsert": "rooms",
-      "opening.upsert": "openings",
-      "object.upsert": "objects",
-      "stair.upsert": "stairs",
-      "void.upsert": "voids",
-      "annotation.upsert": "annotations",
-      "dimension.upsert": "dimensions",
-    }) as const
-  )[kind];
-
-const upsertResource = (
+const updateStorey = (
   plan: HousePlan,
-  operation: Operation,
-  kind: string,
+  levelName: string,
+  change: (storey: Storey) => Storey,
 ): HousePlan | Failure => {
-  const level = named(plan.levels, String(operation.level ?? ""));
+  const level = named(plan.levels, levelName);
   if (!level)
     return failure(
       "not_found",
-      `Unknown level '${String(operation.level ?? "")}'`,
+      `Unknown level '${levelName}'`,
       "Create the level first.",
-    );
-  const key = resourceKey(kind);
-  const value = asNamedEntity<Named>(operation.entity);
-  if (!key || !value)
-    return failure(
-      "invalid_input",
-      `${kind} requires entity.name`,
-      "Use a resource operation from house-plan schema.",
     );
   const source = plan.storeys.find((storey) => storey.levelId === level.id);
   if (!source)
@@ -135,10 +76,7 @@ const upsertResource = (
       `Level '${level.name}' has no storey`,
       "Reinitialize the plan.",
     );
-  const updated = {
-    ...source,
-    [key]: replace(source[key] as readonly Named[], value),
-  } as Storey;
+  const updated = change(source);
   return {
     ...plan,
     storeys: plan.storeys.map((storey) =>
@@ -147,15 +85,110 @@ const upsertResource = (
   };
 };
 
+const upsertResource = (
+  plan: HousePlan,
+  operation: Exclude<Operation, { readonly kind: "level.upsert" }>,
+): HousePlan | Failure =>
+  updateStorey(plan, operation.level, (storey) => {
+    switch (operation.kind) {
+      case "wall.upsert":
+        return {
+          ...storey,
+          walls: replace(
+            storey.walls,
+            withId(
+              operation.entity,
+              named(storey.walls, operation.entity.name),
+            ),
+          ),
+        };
+      case "room.upsert":
+        return {
+          ...storey,
+          rooms: replace(
+            storey.rooms,
+            withId(
+              operation.entity,
+              named(storey.rooms, operation.entity.name),
+            ),
+          ),
+        };
+      case "opening.upsert":
+        return {
+          ...storey,
+          openings: replace(
+            storey.openings,
+            withId(
+              operation.entity,
+              named(storey.openings, operation.entity.name),
+            ),
+          ),
+        };
+      case "object.upsert":
+        return {
+          ...storey,
+          objects: replace(
+            storey.objects,
+            withId(
+              operation.entity,
+              named(storey.objects, operation.entity.name),
+            ),
+          ),
+        };
+      case "stair.upsert":
+        return {
+          ...storey,
+          stairs: replace(
+            storey.stairs,
+            withId(
+              operation.entity,
+              named(storey.stairs, operation.entity.name),
+            ),
+          ),
+        };
+      case "void.upsert":
+        return {
+          ...storey,
+          voids: replace(
+            storey.voids,
+            withId(
+              operation.entity,
+              named(storey.voids, operation.entity.name),
+            ),
+          ),
+        };
+      case "annotation.upsert":
+        return {
+          ...storey,
+          annotations: replace(
+            storey.annotations,
+            withId(
+              operation.entity,
+              named(storey.annotations, operation.entity.name),
+            ),
+          ),
+        };
+      case "dimension.upsert":
+        return {
+          ...storey,
+          dimensions: replace(
+            storey.dimensions,
+            withId(
+              operation.entity,
+              named(storey.dimensions, operation.entity.name),
+            ),
+          ),
+        };
+    }
+  });
+
 const applyOne = (
   plan: HousePlan,
   operation: Operation,
-): HousePlan | Failure => {
-  const kind = String(operation.kind ?? "");
-  return kind === "level.upsert"
+): HousePlan | Failure =>
+  operation.kind === "level.upsert"
     ? upsertLevel(plan, operation)
-    : upsertResource(plan, operation, kind);
-};
+    : upsertResource(plan, operation);
 
 export const apply = (
   plan: HousePlan,
@@ -168,7 +201,7 @@ export const apply = (
       `Expected revision ${expectedRevision}; plan is ${plan.revision}`,
       "Read the plan and retry with its current revision.",
     );
-  let candidate = structuredClone(plan) as HousePlan;
+  let candidate: HousePlan = structuredClone(plan);
   for (const operation of operations) {
     const result = applyOne(candidate, operation);
     if ("ok" in result) return result;
