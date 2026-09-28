@@ -335,6 +335,26 @@ const validateDoorSwingCollisions = (storey: Storey): readonly Diagnostic[] =>
     });
   });
 
+const validateDoorStairApproaches = (storey: Storey): readonly Diagnostic[] =>
+  storey.openings.flatMap((opening) => {
+    const host = named(storey.walls, opening.wall);
+    if (!host) return [];
+    const approach = new WallSegment(host).doorApproachBounds(opening);
+    if (!approach) return [];
+    return storey.stairs.flatMap((stair) =>
+      new StairOccurrence(stair).obstructsDoorApproach(approach)
+        ? [
+            error(
+              "DOOR_STAIR_APPROACH_COLLISION",
+              `Stair '${stair.name}' obstructs the approach to door '${opening.name}'`,
+              { opening: opening.name, stair: stair.name },
+              "Move the stair footprint or doorway so both sides of the threshold have unobstructed depth equal to the door width.",
+            ),
+          ]
+        : [],
+    );
+  });
+
 const validateStairRuns = (plan: HousePlan): readonly Diagnostic[] => {
   const occurrences = plan.storeys.flatMap((storey) => {
     const level = plan.levels.find(
@@ -407,6 +427,7 @@ export const validate = (plan: HousePlan): readonly Diagnostic[] =>
       ...validateOpeningCollisions(storey),
       ...validateObjects(storey),
       ...validateDoorSwingCollisions(storey),
+      ...validateDoorStairApproaches(storey),
     ]),
     ...validateStairRuns(plan),
   ].toSorted(

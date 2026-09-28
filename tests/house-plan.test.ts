@@ -455,6 +455,60 @@ describe("HousePlanEngine", () => {
     ).toBe("Left");
   });
 
+  it("rejects stairs occupying the approach to a sliding door without a swing", () => {
+    const result = apply(emptyPlan(), 0, [
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      { kind: "level.upsert", name: "upper", elevationCm: 280, order: 1 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "hall", type: "circulation", seed: { x: 300, y: 200 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "sliding",
+          offset: 250,
+          width: 80,
+        },
+      },
+      ...(["ground", "upper"] as const).map((level) => ({
+        kind: "stair.upsert" as const,
+        level,
+        entity: {
+          name: `stairs-${level}`,
+          run: "stairs",
+          direction: level === "ground" ? ("up" as const) : ("down" as const),
+          bounds: { x: 250, y: 10, width: 80, height: 90 },
+        },
+      })),
+      {
+        kind: "void.upsert",
+        level: "upper",
+        entity: {
+          name: "stair-void",
+          bounds: { x: 250, y: 10, width: 80, height: 90 },
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "DOOR_STAIR_APPROACH_COLLISION",
+            location: { opening: "entry", stair: "stairs-ground" },
+          }),
+        ]),
+      },
+    });
+  });
+
   it("rejects a furniture footprint that intersects wall thickness", () => {
     const plan = applied([
       { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },

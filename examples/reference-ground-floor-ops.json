@@ -631,10 +631,10 @@
       "run": "main-stairs",
       "direction": "up",
       "bounds": {
-        "x": 400,
-        "y": 50,
-        "width": 200,
-        "height": 350
+        "x": 430,
+        "y": 80,
+        "width": 90,
+        "height": 320
       }
     }
   },
@@ -644,10 +644,10 @@
     "entity": {
       "name": "stairs-void",
       "bounds": {
-        "x": 400,
-        "y": 50,
-        "width": 200,
-        "height": 350
+        "x": 430,
+        "y": 80,
+        "width": 90,
+        "height": 320
       }
     }
   },
@@ -659,10 +659,10 @@
       "run": "main-stairs",
       "direction": "down",
       "bounds": {
-        "x": 400,
-        "y": 50,
-        "width": 200,
-        "height": 350
+        "x": 430,
+        "y": 80,
+        "width": 90,
+        "height": 320
       }
     }
   },

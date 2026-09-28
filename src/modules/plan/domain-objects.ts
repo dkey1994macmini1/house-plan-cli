@@ -83,6 +83,25 @@ export class WallSegment {
     };
   }
 
+  /** Clear depth equal to the doorway width on both sides of its threshold. */
+  doorApproachBounds(opening: Opening): Bounds | undefined {
+    if (opening.type !== "door" || !this.containsOpening(opening))
+      return undefined;
+    const { start, end } = this.openingEndpoints(opening);
+    if (this.value.a.y === this.value.b.y)
+      return {
+        x: Math.min(start.x, end.x),
+        y: start.y - opening.width,
+        width: opening.width,
+        height: opening.width * 2,
+      };
+    return {
+      x: start.x - opening.width,
+      y: Math.min(start.y, end.y),
+      width: opening.width * 2,
+      height: opening.width,
+    };
+  }
   doorSwingBounds(opening: Opening): Bounds | undefined {
     const geometry = this.doorGeometry(opening);
     if (!geometry) return undefined;
@@ -180,6 +199,9 @@ export class PlanObject {
 export class StairOccurrence {
   constructor(readonly value: Stair) {}
 
+  obstructsDoorApproach(approach: Bounds): boolean {
+    return boundsOverlap(this.value.bounds, approach);
+  }
   matchesCounterpart(other: StairOccurrence): boolean {
     return (
       this.value.run === other.value.run &&

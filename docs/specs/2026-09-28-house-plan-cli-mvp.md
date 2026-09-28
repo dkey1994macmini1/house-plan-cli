@@ -96,7 +96,7 @@ Plan obsługuje wiele niezależnych kondygnacji 2D. Każda kondygnacja zawiera o
 - Openings that exceed host wall boundaries or overlap are hard errors. No clamping is performed.
 - Generic `object` is an orthogonal rectangle with label, center, width, depth and rotation limited to 0/90/180/270 degrees. It renders as a box with an X and label.
 - Explicit directional clearance rectangles are optional and rotate with their object. Any non-zero overlap of a box with a wall's occupied thickness (including its end caps) is a hard `OBJECT_WALL_COLLISION`; exact zero-area contact at the wall boundary is allowed. `CLEARANCE_WALL_COLLISION` is a warning; object/object, other-clearance and door-swing collisions retain their own defined severities.
-- Stairs are a specialised rectangle with `direction: up | down`; they have no step count or 3D geometry.
+- Stairs are specialised rectangles with `direction: up | down`; they have no step count or 3D geometry. Hinged door swings and generic objects use conservative rectangular bounds for collision diagnostics. A stair footprint may not overlap the rectangular approach to any door on either side of its threshold (depth equals the door width, including sliding doors): `DOOR_STAIR_APPROACH_COLLISION` is a hard error, not a building-code or landing-geometry guarantee.
 - A stair run has a single identity shared by exactly two storeys. Lower occurrence is `up`, upper occurrence `down`; their footprints must align within the plan tolerance. A void on the upper level must contain the stair footprint.
 
 ### Validation and diagnostics

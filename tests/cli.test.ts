@@ -322,5 +322,61 @@ describe("house-plan executable", () => {
       },
     });
     expect(await readFile(planPath, "utf8")).toBe(beforeRejectedEdit);
+
+    const blockedDoor = join(directory, "blocked-door.json");
+    const blockedBounds = { x: 400, y: 50, width: 200, height: 350 };
+    await writeFile(
+      blockedDoor,
+      JSON.stringify([
+        {
+          kind: "stair.upsert",
+          level: "ground",
+          entity: {
+            name: "stairs-up",
+            run: "main-stairs",
+            direction: "up",
+            bounds: blockedBounds,
+          },
+        },
+        {
+          kind: "stair.upsert",
+          level: "upper",
+          entity: {
+            name: "stairs-down",
+            run: "main-stairs",
+            direction: "down",
+            bounds: blockedBounds,
+          },
+        },
+        {
+          kind: "void.upsert",
+          level: "upper",
+          entity: { name: "stairs-void", bounds: blockedBounds },
+        },
+      ]),
+      "utf8",
+    );
+    const obstruction = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      blockedDoor,
+      "--expected-revision",
+      "1",
+    );
+    expect(obstruction).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(obstruction.stderr)).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "DOOR_STAIR_APPROACH_COLLISION",
+            location: { opening: "stairs-porch-door", stair: "stairs-up" },
+          }),
+        ]),
+      },
+    });
+    expect(await readFile(planPath, "utf8")).toBe(beforeRejectedEdit);
   });
 });
