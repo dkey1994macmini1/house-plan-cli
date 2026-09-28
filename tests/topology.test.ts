@@ -3,6 +3,7 @@ import type { Wall } from "../src/modules/plan/model.js";
 import {
   danglingWallEndpoints,
   deriveSplitSegments,
+  extractOrthogonalFaces,
 } from "../src/modules/plan/topology.js";
 
 const wall = (
@@ -19,6 +20,33 @@ describe("derived orthogonal topology", () => {
     expect(horizontal).toEqual(
       wall("horizontal", { x: 0, y: 100 }, { x: 200, y: 100 }),
     );
+  });
+
+  it("extracts maximal faces from partial partitions in the reference layout", () => {
+    const walls = [
+      wall("north", { x: 0, y: 1100 }, { x: 900, y: 1100 }),
+      wall("south", { x: 0, y: 0 }, { x: 900, y: 0 }),
+      wall("west", { x: 0, y: 0 }, { x: 0, y: 1100 }),
+      wall("east", { x: 900, y: 0 }, { x: 900, y: 1100 }),
+      wall("kitchen-south", { x: 0, y: 800 }, { x: 600, y: 800 }),
+      wall("dining-living", { x: 600, y: 200 }, { x: 600, y: 1100 }),
+      wall("bedroom-row", { x: 0, y: 500 }, { x: 600, y: 500 }),
+      wall("porch-north", { x: 600, y: 200 }, { x: 900, y: 200 }),
+      wall("bedroom-dining", { x: 400, y: 500 }, { x: 400, y: 800 }),
+    ];
+    const faces = extractOrthogonalFaces(walls);
+    expect(faces.map((face) => face.bounds)).toContainEqual({
+      x: 600,
+      y: 200,
+      width: 300,
+      height: 900,
+    });
+    expect(faces.map((face) => face.bounds)).toContainEqual({
+      x: 0,
+      y: 500,
+      width: 400,
+      height: 300,
+    });
   });
 
   it("reports endpoint geometry that remains dangling after intersection splitting", () => {

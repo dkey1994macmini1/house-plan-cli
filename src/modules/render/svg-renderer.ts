@@ -1,5 +1,11 @@
 import { WallSegment } from "../plan/domain-objects.js";
-import type { Dimension, HousePlan, Opening, Storey } from "../plan/model.js";
+import type {
+  Bounds,
+  Dimension,
+  HousePlan,
+  Opening,
+  Storey,
+} from "../plan/model.js";
 import { resolvePlan } from "../plan/resolution.js";
 import {
   renderStairsLayer,
@@ -65,11 +71,58 @@ const dimensionLength = (dimension: Dimension): number =>
 const renderDimension = (dimension: Dimension): string =>
   `<g><line x1="${dimension.a.x}" y1="${svgY(dimension.a.y + dimension.offset)}" x2="${dimension.b.x}" y2="${svgY(dimension.b.y + dimension.offset)}" stroke="#666"/><text x="${(dimension.a.x + dimension.b.x) / 2}" y="${svgY((dimension.a.y + dimension.b.y) / 2 + dimension.offset)}">${dimensionLength(dimension)} cm</text></g>`;
 
+const overlapsBounds = (
+  point: { x: number; y: number },
+  bounds: Bounds,
+): boolean =>
+  point.x >= bounds.x - 15 &&
+  point.x <= bounds.x + bounds.width + 15 &&
+  point.y >= bounds.y - 15 &&
+  point.y <= bounds.y + bounds.height + 15;
+
+const roomLabelPoint = (
+  bounds: Bounds,
+  storey: Storey,
+): { x: number; y: number } => {
+  const candidates = [
+    { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
+    { x: bounds.x + 35, y: bounds.y + 35 },
+    { x: bounds.x + 35, y: bounds.y + bounds.height - 35 },
+    { x: bounds.x + bounds.width - 35, y: bounds.y + 35 },
+    { x: bounds.x + bounds.width - 35, y: bounds.y + bounds.height - 35 },
+  ];
+  const occupied = [
+    ...storey.objects.map((object) => ({
+      x: object.center.x - object.width / 2,
+      y: object.center.y - object.depth / 2,
+      width: object.width,
+      height: object.depth,
+    })),
+    ...storey.stairs.map((stair) => stair.bounds),
+  ];
+  const fallback = candidates[0];
+  if (!fallback) throw new Error("Room label requires at least one candidate");
+  return (
+    candidates.find(
+      (point) => !occupied.some((bounds) => overlapsBounds(point, bounds)),
+    ) ?? fallback
+  );
+};
+
+const renderRoomLabel = (
+  room: { name: string; areaCm2: number; bounds: Bounds },
+  storey: Storey,
+): string => {
+  const point = roomLabelPoint(room.bounds, storey);
+  const label = `${room.name} ${(room.areaCm2 / 10000).toFixed(1)}m²`;
+  return `<text class="room-label" x="${point.x}" y="${svgY(point.y)}" text-anchor="middle" fill="#111" stroke="white" stroke-width="5" paint-order="stroke">${escapeXml(label)}</text>`;
+};
+
 export const renderSvg = (plan: HousePlan, storey: Storey): string => {
   const resolved = resolvePlan(plan).storeys.find(
     (candidate) => candidate.id === storey.id,
   );
   if (!resolved) throw new Error(`Cannot render unknown storey '${storey.id}'`);
   const { x, y, width, height } = resolved.bounds;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x - 100} ${svgY(y + height + 100)} ${width + 200} ${height + 200}"><defs>${voidHatchDefinition}</defs><g id="walls">${storey.walls.map(renderWall).join("")}</g><g id="openings">${storey.openings.map((opening) => renderOpening(opening, storey)).join("")}</g><g id="rooms">${resolved.rooms.map((room) => `<text x="${room.bounds.x + room.bounds.width / 2}" y="${svgY(room.bounds.y + room.bounds.height / 2)}" text-anchor="middle">${escapeXml(room.name)} ${(room.areaCm2 / 10000).toFixed(1)}m²</text>`).join("")}</g><g id="objects">${renderObjectsLayer(storey.objects)}</g><g id="stairs">${renderStairsLayer(storey.stairs)}</g><g id="voids">${renderVoidsLayer(storey.voids)}</g><g id="dimensions">${storey.dimensions.map(renderDimension).join("")}</g><g id="annotations">${storey.annotations.map((annotation) => `<text x="${annotation.at.x}" y="${svgY(annotation.at.y)}">${escapeXml(annotation.text)}</text>`).join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x - 100} ${svgY(y + height + 100)} ${width + 200} ${height + 200}"><defs>${voidHatchDefinition}</defs><g id="walls">${storey.walls.map(renderWall).join("")}</g><g id="openings">${storey.openings.map((opening) => renderOpening(opening, storey)).join("")}</g><g id="rooms"></g><g id="objects">${renderObjectsLayer(storey.objects)}</g><g id="room-labels">${resolved.rooms.map((room) => renderRoomLabel(room, storey)).join("")}</g><g id="stairs">${renderStairsLayer(storey.stairs)}</g><g id="voids">${renderVoidsLayer(storey.voids)}</g><g id="dimensions">${storey.dimensions.map(renderDimension).join("")}</g><g id="annotations">${storey.annotations.map((annotation) => `<text x="${annotation.at.x}" y="${svgY(annotation.at.y)}">${escapeXml(annotation.text)}</text>`).join("")}</g></svg>`;
 };

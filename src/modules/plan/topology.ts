@@ -70,18 +70,37 @@ export type DerivedFace = Readonly<{
   vertices: readonly Point[];
 }>;
 
+const coversInterval = (
+  ranges: readonly Readonly<{ start: number; end: number }>[],
+  start: number,
+  end: number,
+): boolean => {
+  let coveredUntil = start;
+  for (const range of ranges.toSorted(
+    (left, right) => left.start - right.start,
+  )) {
+    if (range.start > coveredUntil) return false;
+    coveredUntil = Math.max(coveredUntil, range.end);
+    if (coveredUntil >= end) return true;
+  }
+  return false;
+};
+
 const coversHorizontalEdge = (
   segments: readonly AxisSegment[],
   y: number,
   startX: number,
   endX: number,
 ): boolean =>
-  segments.some(
-    (segment) =>
-      segment.start.y === y &&
-      segment.end.y === y &&
-      Math.min(segment.start.x, segment.end.x) <= startX &&
-      Math.max(segment.start.x, segment.end.x) >= endX,
+  coversInterval(
+    segments
+      .filter((segment) => segment.start.y === y && segment.end.y === y)
+      .map((segment) => ({
+        start: Math.min(segment.start.x, segment.end.x),
+        end: Math.max(segment.start.x, segment.end.x),
+      })),
+    startX,
+    endX,
   );
 const coversVerticalEdge = (
   segments: readonly AxisSegment[],
@@ -89,12 +108,15 @@ const coversVerticalEdge = (
   startY: number,
   endY: number,
 ): boolean =>
-  segments.some(
-    (segment) =>
-      segment.start.x === x &&
-      segment.end.x === x &&
-      Math.min(segment.start.y, segment.end.y) <= startY &&
-      Math.max(segment.start.y, segment.end.y) >= endY,
+  coversInterval(
+    segments
+      .filter((segment) => segment.start.x === x && segment.end.x === x)
+      .map((segment) => ({
+        start: Math.min(segment.start.y, segment.end.y),
+        end: Math.max(segment.start.y, segment.end.y),
+      })),
+    startY,
+    endY,
   );
 const hasClosedCellBoundary = (
   segments: readonly AxisSegment[],
@@ -121,7 +143,27 @@ const faceVertices = (bounds: Bounds): readonly Point[] => [
   { x: bounds.x, y: bounds.y + bounds.height },
 ];
 
-/** Extracts each smallest closed orthogonal cell from the virtual split wall graph. */
+const hasInteriorWall = (
+  segments: readonly AxisSegment[],
+  bounds: Bounds,
+): boolean =>
+  segments.some((segment) => {
+    const horizontalInside =
+      segment.start.y === segment.end.y &&
+      segment.start.y > bounds.y &&
+      segment.start.y < bounds.y + bounds.height &&
+      Math.max(segment.start.x, segment.end.x) > bounds.x &&
+      Math.min(segment.start.x, segment.end.x) < bounds.x + bounds.width;
+    const verticalInside =
+      segment.start.x === segment.end.x &&
+      segment.start.x > bounds.x &&
+      segment.start.x < bounds.x + bounds.width &&
+      Math.max(segment.start.y, segment.end.y) > bounds.y &&
+      Math.min(segment.start.y, segment.end.y) < bounds.y + bounds.height;
+    return horizontalInside || verticalInside;
+  });
+
+/** Extracts maximal rectangular faces bounded by authored orthogonal walls. */
 export const extractOrthogonalFaces = (
   walls: readonly Wall[],
 ): readonly DerivedFace[] => {
@@ -133,19 +175,24 @@ export const extractOrthogonalFaces = (
   const ys = [...new Set(points.map((point) => point.y))].toSorted(
     (left, right) => left - right,
   );
-  return xs.flatMap((x, xIndex) =>
-    ys.flatMap((y, yIndex) => {
-      const nextX = xs[xIndex + 1];
-      const nextY = ys[yIndex + 1];
-      if (nextX === undefined || nextY === undefined) return [];
-      const bounds = { x, y, width: nextX - x, height: nextY - y };
-      return bounds.width > 0 &&
-        bounds.height > 0 &&
-        hasClosedCellBoundary(segments, bounds)
-        ? [{ bounds, vertices: faceVertices(bounds) }]
-        : [];
-    }),
-  );
+  return xs
+    .flatMap((x, startX) =>
+      ys.flatMap((y, startY) =>
+        xs.slice(startX + 1).flatMap((right) =>
+          ys.slice(startY + 1).flatMap((top) => {
+            const bounds = { x, y, width: right - x, height: top - y };
+            return hasClosedCellBoundary(segments, bounds) &&
+              !hasInteriorWall(segments, bounds)
+              ? [{ bounds, vertices: faceVertices(bounds) }]
+              : [];
+          }),
+        ),
+      ),
+    )
+    .toSorted(
+      (left, right) =>
+        left.bounds.y - right.bounds.y || left.bounds.x - right.bounds.x,
+    );
 };
 
 export const faceContainingPoint = (
