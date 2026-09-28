@@ -70,99 +70,6 @@ export type DerivedFace = Readonly<{
   vertices: readonly Point[];
 }>;
 
-const coversInterval = (
-  ranges: readonly Readonly<{ start: number; end: number }>[],
-  start: number,
-  end: number,
-): boolean => {
-  let coveredUntil = start;
-  for (const range of ranges.toSorted(
-    (left, right) => left.start - right.start,
-  )) {
-    if (range.start > coveredUntil) return false;
-    coveredUntil = Math.max(coveredUntil, range.end);
-    if (coveredUntil >= end) return true;
-  }
-  return false;
-};
-
-const coversHorizontalEdge = (
-  segments: readonly AxisSegment[],
-  y: number,
-  startX: number,
-  endX: number,
-): boolean =>
-  coversInterval(
-    segments
-      .filter((segment) => segment.start.y === y && segment.end.y === y)
-      .map((segment) => ({
-        start: Math.min(segment.start.x, segment.end.x),
-        end: Math.max(segment.start.x, segment.end.x),
-      })),
-    startX,
-    endX,
-  );
-const coversVerticalEdge = (
-  segments: readonly AxisSegment[],
-  x: number,
-  startY: number,
-  endY: number,
-): boolean =>
-  coversInterval(
-    segments
-      .filter((segment) => segment.start.x === x && segment.end.x === x)
-      .map((segment) => ({
-        start: Math.min(segment.start.y, segment.end.y),
-        end: Math.max(segment.start.y, segment.end.y),
-      })),
-    startY,
-    endY,
-  );
-const hasClosedCellBoundary = (
-  segments: readonly AxisSegment[],
-  bounds: Bounds,
-): boolean =>
-  coversHorizontalEdge(segments, bounds.y, bounds.x, bounds.x + bounds.width) &&
-  coversHorizontalEdge(
-    segments,
-    bounds.y + bounds.height,
-    bounds.x,
-    bounds.x + bounds.width,
-  ) &&
-  coversVerticalEdge(segments, bounds.x, bounds.y, bounds.y + bounds.height) &&
-  coversVerticalEdge(
-    segments,
-    bounds.x + bounds.width,
-    bounds.y,
-    bounds.y + bounds.height,
-  );
-const faceVertices = (bounds: Bounds): readonly Point[] => [
-  { x: bounds.x, y: bounds.y },
-  { x: bounds.x + bounds.width, y: bounds.y },
-  { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
-  { x: bounds.x, y: bounds.y + bounds.height },
-];
-
-const hasInteriorWall = (
-  segments: readonly AxisSegment[],
-  bounds: Bounds,
-): boolean =>
-  segments.some((segment) => {
-    const horizontalInside =
-      segment.start.y === segment.end.y &&
-      segment.start.y > bounds.y &&
-      segment.start.y < bounds.y + bounds.height &&
-      Math.max(segment.start.x, segment.end.x) > bounds.x &&
-      Math.min(segment.start.x, segment.end.x) < bounds.x + bounds.width;
-    const verticalInside =
-      segment.start.x === segment.end.x &&
-      segment.start.x > bounds.x &&
-      segment.start.x < bounds.x + bounds.width &&
-      Math.max(segment.start.y, segment.end.y) > bounds.y &&
-      Math.min(segment.start.y, segment.end.y) < bounds.y + bounds.height;
-    return horizontalInside || verticalInside;
-  });
-
 /**
  * A free end of an interior stub can mark an open-plan room boundary. Extend
  * its axis to the nearest perpendicular authored wall for zoning only; the
@@ -212,49 +119,191 @@ const zoningExtensions = (walls: readonly Wall[]): readonly Wall[] => {
   });
 };
 
-/** Extracts rectangular zoning faces; partial walls may mark open boundaries. */
-export const extractOrthogonalFaces = (
+const pointKey = (point: Point): string => `${point.x}:${point.y}`;
+
+const signedPolygonAreaCm2 = (vertices: readonly Point[]): number =>
+  vertices.reduce((sum, point, index) => {
+    const next = vertices[(index + 1) % vertices.length];
+    return next ? sum + point.x * next.y - next.x * point.y : sum;
+  }, 0) / 2;
+
+export const polygonAreaCm2 = (vertices: readonly Point[]): number =>
+  Math.abs(signedPolygonAreaCm2(vertices));
+
+const cross = (origin: Point, middle: Point, target: Point): number =>
+  (middle.x - origin.x) * (target.y - middle.y) -
+  (middle.y - origin.y) * (target.x - middle.x);
+
+const simplifyPolygon = (vertices: readonly Point[]): readonly Point[] =>
+  vertices.filter((point, index) => {
+    const previous = vertices[(index - 1 + vertices.length) % vertices.length];
+    const next = vertices[(index + 1) % vertices.length];
+    return previous && next ? cross(previous, point, next) !== 0 : true;
+  });
+
+const canonicalPolygon = (vertices: readonly Point[]): readonly Point[] => {
+  const start = vertices.reduce((best, point, index) => {
+    const bestPoint = vertices[best];
+    return !bestPoint ||
+      point.y < bestPoint.y ||
+      (point.y === bestPoint.y && point.x < bestPoint.x)
+      ? index
+      : best;
+  }, 0);
+  return [...vertices.slice(start), ...vertices.slice(0, start)];
+};
+
+const boundaryGraph = (
+  segments: readonly AxisSegment[],
+): ReadonlyMap<string, readonly Point[]> => {
+  const graph = new Map<string, Map<string, Point>>();
+  const connect = (from: Point, to: Point): void => {
+    const neighbors = graph.get(pointKey(from)) ?? new Map<string, Point>();
+    neighbors.set(pointKey(to), to);
+    graph.set(pointKey(from), neighbors);
+  };
+  for (const segment of segments) {
+    connect(segment.start, segment.end);
+    connect(segment.end, segment.start);
+  }
+  return new Map(
+    [...graph.entries()].map(([key, neighbors]) => [
+      key,
+      [...neighbors.values()].toSorted(
+        (left, right) =>
+          Math.atan2(
+            left.y - Number(key.split(":")[1]),
+            left.x - Number(key.split(":")[0]),
+          ) -
+          Math.atan2(
+            right.y - Number(key.split(":")[1]),
+            right.x - Number(key.split(":")[0]),
+          ),
+      ),
+    ]),
+  );
+};
+
+const directedEdgeKey = (from: Point, to: Point): string =>
+  `${pointKey(from)}>${pointKey(to)}`;
+
+const boundedPolygons = (
+  segments: readonly AxisSegment[],
+): readonly (readonly Point[])[] => {
+  const graph = boundaryGraph(segments);
+  const visited = new Set<string>();
+  const polygons: Point[][] = [];
+  for (const [fromKey, neighbors] of graph) {
+    const from = fromKey.split(":").map(Number);
+    if (from.length !== 2) continue;
+    for (const to of neighbors) {
+      const start = { x: from[0] ?? 0, y: from[1] ?? 0 };
+      const firstEdge = directedEdgeKey(start, to);
+      if (visited.has(firstEdge)) continue;
+      const polygon: Point[] = [];
+      let current = start;
+      let next = to;
+      while (!visited.has(directedEdgeKey(current, next))) {
+        visited.add(directedEdgeKey(current, next));
+        polygon.push(current);
+        const candidates = graph.get(pointKey(next));
+        if (!candidates) break;
+        const reverse = candidates.findIndex((candidate) =>
+          pointsEqual(candidate, current),
+        );
+        if (reverse < 0) break;
+        const following =
+          candidates[(reverse - 1 + candidates.length) % candidates.length];
+        if (!following) break;
+        current = next;
+        next = following;
+      }
+      if (pointsEqual(current, start) && pointsEqual(next, to))
+        polygons.push([...simplifyPolygon(polygon)]);
+    }
+  }
+  return polygons.filter((polygon) => signedPolygonAreaCm2(polygon) > 0);
+};
+
+const boundedFaceCandidates = (
   walls: readonly Wall[],
 ): readonly DerivedFace[] => {
   const segments = deriveSplitSegments([...walls, ...zoningExtensions(walls)]);
-  const points = segments.flatMap((segment) => [segment.start, segment.end]);
-  const xs = [...new Set(points.map((point) => point.x))].toSorted(
-    (left, right) => left - right,
-  );
-  const ys = [...new Set(points.map((point) => point.y))].toSorted(
-    (left, right) => left - right,
-  );
-  return xs
-    .flatMap((x, startX) =>
-      ys.flatMap((y, startY) =>
-        xs.slice(startX + 1).flatMap((right) =>
-          ys.slice(startY + 1).flatMap((top) => {
-            const bounds = { x, y, width: right - x, height: top - y };
-            return hasClosedCellBoundary(segments, bounds) &&
-              !hasInteriorWall(segments, bounds)
-              ? [{ bounds, vertices: faceVertices(bounds) }]
-              : [];
-          }),
-        ),
-      ),
-    )
+  return boundedPolygons(segments)
+    .map((vertices) => canonicalPolygon(vertices))
+    .flatMap((vertices) => {
+      const bounds = boundsFromPoints(vertices);
+      return bounds ? [{ bounds, vertices }] : [];
+    })
     .toSorted(
       (left, right) =>
         left.bounds.y - right.bounds.y || left.bounds.x - right.bounds.x,
     );
 };
 
+/**
+ * A wall loop that touches nothing around it is traced as its own face, but it
+ * is not cut out of the face surrounding it; that surrounding face would claim
+ * the loop's area, so it cannot be a room zone.
+ */
+const enclosesFreestandingLoop = (
+  face: DerivedFace,
+  candidates: readonly DerivedFace[],
+): boolean =>
+  candidates.some(
+    (other) =>
+      other !== face &&
+      other.vertices.some((vertex) => pointStrictlyInsideFace(face, vertex)),
+  );
+
+/** Extracts bounded orthogonal zoning faces, including L- and T-shaped polygons. */
+export const extractOrthogonalFaces = (
+  walls: readonly Wall[],
+): readonly DerivedFace[] => {
+  const candidates = boundedFaceCandidates(walls);
+  return candidates.filter(
+    (face) => !enclosesFreestandingLoop(face, candidates),
+  );
+};
+
+/** Faces withheld from zoning because a freestanding wall loop floats inside them. */
+export const facesEnclosingFreestandingLoops = (
+  walls: readonly Wall[],
+): readonly DerivedFace[] => {
+  const candidates = boundedFaceCandidates(walls);
+  return candidates.filter((face) =>
+    enclosesFreestandingLoop(face, candidates),
+  );
+};
+
+const pointOnSegment = (point: Point, start: Point, end: Point): boolean =>
+  cross(start, point, end) === 0 &&
+  between(point.x, start.x, end.x) &&
+  between(point.y, start.y, end.y);
+
+export const pointStrictlyInsideFace = (
+  face: DerivedFace,
+  point: Point,
+): boolean => {
+  let inside = false;
+  for (const [index, start] of face.vertices.entries()) {
+    const end = face.vertices[(index + 1) % face.vertices.length];
+    if (!end || pointOnSegment(point, start, end)) return false;
+    if (
+      start.y > point.y !== end.y > point.y &&
+      point.x <
+        ((end.x - start.x) * (point.y - start.y)) / (end.y - start.y) + start.x
+    )
+      inside = !inside;
+  }
+  return inside;
+};
+
 export const faceContainingPoint = (
   faces: readonly DerivedFace[],
   point: Point,
 ): DerivedFace | undefined =>
-  faces.find(
-    (face) =>
-      point.x >= face.bounds.x &&
-      point.x <= face.bounds.x + face.bounds.width &&
-      point.y >= face.bounds.y &&
-      point.y <= face.bounds.y + face.bounds.height,
-  );
+  faces.find((face) => pointStrictlyInsideFace(face, point));
 
 const pointsEqual = (left: Point, right: Point): boolean =>
   left.x === right.x && left.y === right.y;
@@ -312,20 +361,20 @@ export class DerivedTopology {
     return faceContainingPoint(this.faces, point);
   }
 
+  surroundsFreestandingLoopAt(point: Point): boolean {
+    return facesEnclosingFreestandingLoops(this.sourceWalls).some((face) =>
+      pointStrictlyInsideFace(face, point),
+    );
+  }
+
   hasFaceBoundaryAt(point: Point): boolean {
     return this.faces.some((face) => this.pointIsOnFaceBoundary(point, face));
   }
 
   private pointIsOnFaceBoundary(point: Point, face: DerivedFace): boolean {
-    const { x, y, width, height } = face.bounds;
-    const onHorizontal =
-      (point.y === y || point.y === y + height) &&
-      point.x >= x &&
-      point.x <= x + width;
-    const onVertical =
-      (point.x === x || point.x === x + width) &&
-      point.y >= y &&
-      point.y <= y + height;
-    return onHorizontal || onVertical;
+    return face.vertices.some((start, index) => {
+      const end = face.vertices[(index + 1) % face.vertices.length];
+      return end ? pointOnSegment(point, start, end) : false;
+    });
   }
 }

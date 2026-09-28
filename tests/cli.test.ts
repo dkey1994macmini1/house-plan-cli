@@ -30,6 +30,171 @@ beforeAll(async () => {
 });
 
 describe("house-plan executable", () => {
+  it("refuses to overwrite an existing plan during init", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "house-plan-init-existing-"),
+    );
+    const planPath = join(directory, "plan.json");
+    await writeFile(planPath, '{"keep":true}\n', "utf8");
+
+    const result = await runCli("init", "--out", planPath);
+
+    expect(result).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "invalid_input" },
+    });
+    expect(await readFile(planPath, "utf8")).toBe('{"keep":true}\n');
+  });
+
+  it("rejects a persisted plan outside the HousePlan schema", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "house-plan-invalid-plan-"));
+    const planPath = join(directory, "plan.json");
+    await writeFile(
+      planPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        revision: 0,
+        levels: [],
+        storeys: [{}],
+      }),
+      "utf8",
+    );
+
+    const result = await runCli("validate", "--plan", planPath);
+
+    expect(result).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      error: { type: "invalid_input" },
+    });
+  });
+
+  it("applies the skill's operation templates as valid batches", async () => {
+    const templates = join(root, ".agents/skills/house-plan-cli-dk/templates");
+    for (const template of ["ground-shell.json", "two-storey-stairs.json"]) {
+      const directory = await mkdtemp(join(tmpdir(), "house-plan-template-"));
+      const planPath = join(directory, "plan.json");
+      expect((await runCli("init", "--out", planPath)).status).toBe(0);
+
+      const applied = await runCli(
+        "apply",
+        "--plan",
+        planPath,
+        "--input",
+        join(templates, template),
+        "--expected-revision",
+        "0",
+      );
+
+      expect(applied, template).toMatchObject({ status: 0, stderr: "" });
+    }
+  });
+
+  it("renders an invalid plan only as an explicit draft that carries its diagnostics", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "house-plan-draft-"));
+    const planPath = join(directory, "plan.json");
+    const svgPath = join(directory, "draft.svg");
+    await writeFile(
+      planPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        revision: 3,
+        levels: [{ id: "level-1", name: "ground", elevationCm: 0, order: 0 }],
+        storeys: [
+          {
+            id: "storey-1",
+            levelId: "level-1",
+            walls: [],
+            rooms: [
+              {
+                id: "room-1",
+                name: "floating",
+                type: "living",
+                seed: { x: 100, y: 100 },
+              },
+            ],
+            openings: [],
+            objects: [],
+            stairs: [],
+            voids: [],
+            annotations: [],
+            dimensions: [],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const renderArgs = ["render", "--plan", planPath, "--level", "ground"];
+
+    const refused = await runCli(...renderArgs, "--out", svgPath);
+    const draft = await runCli(
+      ...renderArgs,
+      "--out",
+      svgPath,
+      "--allow-invalid",
+    );
+
+    expect(refused).toMatchObject({ status: 2, stdout: "" });
+    expect(draft).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(draft.stdout)).toMatchObject({
+      ok: true,
+      type: "plan.rendered",
+      meta: {
+        revision: 3,
+        diagnostics: [expect.objectContaining({ code: "ROOM_FACE_NOT_FOUND" })],
+      },
+    });
+    expect(await readFile(svgPath, "utf8")).toContain("<svg");
+  });
+
+  it("rejects an operation with an unsupported opening variant", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "house-plan-opening-variant-"),
+    );
+    const planPath = join(directory, "plan.json");
+    const operationsPath = join(directory, "operations.json");
+    await writeFile(
+      operationsPath,
+      JSON.stringify([
+        { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+        {
+          kind: "opening.upsert",
+          level: "ground",
+          entity: {
+            name: "bad-door",
+            wall: "missing",
+            type: "door",
+            variant: "singlee",
+            offset: 10,
+            width: 90,
+          },
+        },
+      ]),
+      "utf8",
+    );
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+
+    const result = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      operationsPath,
+      "--expected-revision",
+      "0",
+    );
+
+    expect(result).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      error: {
+        type: "invalid_input",
+        message: expect.stringContaining("unsupported door variant"),
+      },
+    });
+  });
+
   it("emits its Effect-derived JSON Schema through stdout", async () => {
     const result = await runCli("schema");
     const envelope = JSON.parse(result.stdout) as {
@@ -548,9 +713,22 @@ describe("house-plan executable", () => {
     });
     expect(await readFile(planPath, "utf8")).toBe(before);
     const discovered = JSON.parse((await runCli("commands")).stdout) as {
-      data: { commands: string[] };
+      data: { version: string; commands: string[]; operations: string[] };
     };
+    const packageJson = JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    ) as { version: string };
     expect(discovered.data.commands).toContain("survey --plan FILE");
+    expect(discovered.data.version).toBe(packageJson.version);
+    expect(discovered.data.operations).toEqual(
+      expect.arrayContaining([
+        "level.upsert",
+        "level.remove",
+        "wall.upsert",
+        "wall.remove",
+        "dimension.remove",
+      ]),
+    );
   });
 
   it("writes a missing survey plan only to stderr", async () => {

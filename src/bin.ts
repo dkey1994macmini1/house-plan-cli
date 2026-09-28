@@ -8,6 +8,7 @@
  * boundary. Domain operations live in `src/modules/*` as pure FP
  * functions; Effect enters only here at the entry point.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Command, HelpDoc, Options, ValidationError } from "@effect/cli";
 import { NodeFileSystem, NodePath, NodeTerminal } from "@effect/platform-node";
@@ -28,6 +29,8 @@ import {
 import {
   decodeOperations,
   operationJsonSchema,
+  operationKinds,
+  validateOpeningVariants,
 } from "./modules/plan/schema.js";
 import {
   PlanValidationError,
@@ -101,6 +104,17 @@ const savePlanToDisk = (path: string, plan: Parameters<typeof savePlan>[1]) =>
 
 const initHandler = ({ out }: { readonly out: string }) =>
   Effect.gen(function* () {
+    if (existsSync(out)) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: `Refusing to overwrite existing plan '${out}'`,
+          hint: "Choose a new path or modify the existing plan with apply.",
+          exit: 2,
+        }),
+      );
+      return;
+    }
     yield* savePlanToDisk(out, emptyPlan());
     yield* writeSuccess("plan.initialized", { path: out }, 0);
   });
@@ -154,6 +168,18 @@ const applyHandler = ({
           type: "invalid_input",
           message: `Operation document does not match the HousePlan schema: ${decoded.left}`,
           hint: "Pass a JSON array of HousePlan operations.",
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    const openingVariantError = validateOpeningVariants(decoded.right);
+    if (openingVariantError) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: openingVariantError,
+          hint: "Use a supported opening variant and matching hinge/swing fields.",
           exit: 2,
         }),
       );
@@ -277,15 +303,18 @@ const renderHandler = ({
   out,
   allLevels,
   outDir,
+  allowInvalid,
 }: {
   readonly plan: string;
   readonly level: Option.Option<string>;
   readonly out: Option.Option<string>;
   readonly allLevels: boolean;
   readonly outDir: Option.Option<string>;
+  readonly allowInvalid: boolean;
 }) =>
   Effect.gen(function* () {
     const plan = yield* loadPlanFromDisk(planPath);
+    const diagnostics = allowInvalid ? validate(plan) : undefined;
     if (allLevels) {
       if (Option.isNone(outDir)) {
         yield* fail(
@@ -299,7 +328,7 @@ const renderHandler = ({
         return;
       }
       const files = yield* Effect.tryPromise({
-        try: () => renderAllLevelsToDirectory(plan, outDir.value),
+        try: () => renderAllLevelsToDirectory(plan, outDir.value, allowInvalid),
         catch: (cause) =>
           cause instanceof PlanValidationError
             ? new CommandError({
@@ -322,6 +351,7 @@ const renderHandler = ({
         "plan.rendered_all_levels",
         { directory: outDir.value, files },
         plan.revision,
+        diagnostics,
       );
       return;
     }
@@ -337,7 +367,7 @@ const renderHandler = ({
       return;
     }
     const rendered = yield* Effect.tryPromise({
-      try: () => renderLevelToFile(plan, level.value, out.value),
+      try: () => renderLevelToFile(plan, level.value, out.value, allowInvalid),
       catch: (cause) =>
         cause instanceof PlanValidationError
           ? new CommandError({
@@ -364,17 +394,21 @@ const renderHandler = ({
                 cause,
               }),
     });
-    yield* writeSuccess("plan.rendered", rendered, plan.revision);
+    yield* writeSuccess("plan.rendered", rendered, plan.revision, diagnostics);
   });
+
+const cliVersion = "0.1.0";
 
 const commandsHandler = () =>
   writeSuccess("commands", {
+    version: cliVersion,
+    operations: operationKinds,
     commands: [
       "init --out FILE",
       "apply --plan FILE --input FILE --expected-revision N [--dry-run]",
       "validate --plan FILE",
-      "render --plan FILE --level LEVEL --out FILE",
-      "render --plan FILE --all-levels --out-dir DIR",
+      "render --plan FILE --level LEVEL --out FILE [--allow-invalid]",
+      "render --plan FILE --all-levels --out-dir DIR [--allow-invalid]",
       "report --plan FILE",
       "survey --plan FILE",
       "commands",
@@ -437,6 +471,9 @@ const renderCommand = Command.make(
     out: Options.text("out").pipe(Options.optional),
     allLevels: Options.boolean("all-levels").pipe(Options.withDefault(false)),
     outDir: Options.text("out-dir").pipe(Options.optional),
+    allowInvalid: Options.boolean("allow-invalid").pipe(
+      Options.withDefault(false),
+    ),
   },
   renderHandler,
 ).pipe(
@@ -491,7 +528,7 @@ const housePlanCommand = Command.make("house-plan").pipe(
 
 const cli = Command.run(housePlanCommand, {
   name: "house-plan",
-  version: "0.1.0",
+  version: cliVersion,
 });
 
 const cliProgram = Console.consoleWith((console) =>

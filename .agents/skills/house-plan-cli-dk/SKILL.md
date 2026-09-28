@@ -8,23 +8,26 @@ Operate the repository's `house-plan` executable to turn explicit layout decisio
 </objective>
 
 <essential_principles>
-- Work from the repository root. Use `pnpm cli <command>` in development (or the built `house-plan <command>` after installation). `pnpm cli` prints pnpm banners in addition to the CLI's JSON; for clean machine parsing use `node dist/bin.js <command>` after `pnpm build`. Never parse pnpm's combined output as one JSON document.
+- Work from the repository root. Run `pnpm build` once, then invoke every command as `node dist/bin.js <command>`. Do not use `pnpm cli`: pnpm prints banners around the JSON envelope. Rebuild after pulling source changes.
 - Treat the plan JSON as the source of truth; SVG is derived. Public coordinates and dimensions are centimetres on a 0.1 cm grid, X right, Y up. Do not silently snap, resize, or repair authored geometry.
 - All changes go through `apply --input` with a JSON **array** of operations and `--expected-revision`; batch related edits because validation checks the resulting plan as a whole. `--dry-run` does not persist or advance the on-disk revision; inspect its diagnostics before the real apply.
 - Read the current revision immediately before a write. On exit 5 `revision_conflict`, reread the plan and re-evaluate the intended edits; never blindly replay with a new number. On any failed write, inspect stderr's structured `error` and correct the input; do not assume partial success.
 - Only claim a valid plan when `validate` returns `data.valid === true`; its exit 0 alone is not proof. Render only after validation. Neither validity nor SVG certifies building-code compliance.
 - Understand a plan with `survey`, not by reconstructing it from `report`. `survey` is the spatial reading (rooms, unique face area, connections). `report` is the full resolved geometry. Sum `faceAreaCm2`, never `roomClaimAreaCm2`, when two rooms share a `faceId`.
-- Do not claim this CLI supports `--json`, `--format text`, stdin `-`, single-resource commands, deletion, PDF, layout generation or auto-fixes: these are not implemented in the current executable. Check `commands` and `schema` again when upgrading the repo.
+- Do not claim this CLI supports `--json`, `--format text`, stdin `-`, single-resource commands, PDF, layout generation or auto-fixes: these are not implemented in the current executable. Check `commands` and `schema` again when upgrading the repo.
+- `init` refuses to overwrite an existing file. Use `apply` for an existing plan.
+- Valid door variants are `single`, `double`, and `sliding`; hinged doors require both `hinge` and `swing`. Valid window variants are `fixed`, `casement`, `tilt-turn`, and `sliding`.
 </essential_principles>
 
 <schema_facts>
-- Every storey-local operation (wall/room/opening/object/annotation/dimension upsert) requires a `level` field in addition to `entity`; omitting it fails schema validation with `is missing`.
-- Openings: `variant` accepts `single`, `sliding`, `fixed`, `casement`; `hinge` (`left`/`right`) and `swing` (`in`/`out`) apply only to hinged doors. `offset` is measured from the wall's canonical start in the AUTHORED a→b direction.
+- Every storey-local operation (wall/room/opening/object/annotation/dimension upsert) requires a `level` field in addition to `entity`; omitting it fails schema validation with `is missing`. Storey-local removes take `level` + `name`; `level.remove` takes only `name`.
+- Openings: `hinge` (`left`/`right`) and `swing` (`in`/`out`) are required for `single`/`double` doors and rejected for `sliding` doors and all windows. `offset` is measured from the wall's canonical start in the AUTHORED a→b direction.
 - Room `type` is a free string; known-good values include bedroom, bathroom, kitchen, circulation, dining, living, porch, utility, garage.
 </schema_facts>
 
 <lessons>
-- Faces are closed rectangles derived from wall segments: every room zone must be fully enclosed by wall centerlines (a dangling horizontal wall endpoint only virtually extends to the nearest perpendicular wall for zoning). A corridor whose boundary wall stops short leaves ROOM_FACE_NOT_FOUND; extend the wall or add a perpendicular closing wall.
+- Faces are closed orthogonal polygons (rectangles, L and T shapes) derived from wall segments: every room zone must be fully enclosed by wall centerlines (a free interior wall endpoint only virtually extends to the nearest perpendicular wall for zoning). A corridor whose boundary wall stops short leaves ROOM_FACE_NOT_FOUND; extend the wall or add a perpendicular closing wall.
+- An upper-floor room needs no exterior door when a connecting stair run lands in its face: the run must occur on exactly two levels (lower `up`, upper `down`, identical bounds) and the upper occurrence must sit inside a void.
 - Circulation connects faces ONLY through doors and physical gaps between walls on a shared edge — windows never provide access, and virtual zoning extensions are not barriers. If all rooms report ROOM_NOT_REACHABLE/ROOM_WITHOUT_DOOR at once, the daily zone was sealed: add a door (even wide, 120–140 cm) on the separating wall.
 - Door swings that collide with furniture flip by authored direction: on a wall authored left→right (+x), `in` opens north, `out` south; on a wall authored bottom→top (+y), `in` opens west (left), `out` east (right).
 - Garage doors as variant "single" with swing collide with parked cars; use variant "sliding" with no hinge/swing.
@@ -45,6 +48,8 @@ Read `references/cli-contract.md`, then follow the matching workflow. Start disc
 - `references/cli-contract.md` — actual executable commands, outputs, failures and revision handling.
 - `references/survey.md` — how to read `survey` output as a floor plan.
 - `references/operations.md` — operation shapes, topology, circulation and corrections.
+- `references/diagnostics.md` — diagnostic code meanings and corrections.
+- `references/limits.md` — executable geometry and lifecycle limits.
 </reference_index>
 
 <success_criteria>

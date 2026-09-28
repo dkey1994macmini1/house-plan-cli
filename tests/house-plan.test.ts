@@ -4,6 +4,7 @@ import {
   emptyPlan,
   renderSvg,
   resolvePlan,
+  surveyPlan,
   validate,
 } from "../src/house-plan.js";
 import type { Operation } from "../src/modules/plan/model.js";
@@ -71,7 +72,311 @@ const applied = (operations: readonly Operation[]) => {
   return result;
 };
 
+const slidingDoor = (level: string, name: string, wall: string, offset = 150) =>
+  ({
+    kind: "opening.upsert",
+    level,
+    entity: {
+      name,
+      wall,
+      type: "door",
+      variant: "sliding",
+      offset,
+      width: 90,
+    },
+  }) as const;
+
+const stairBounds = { x: 100, y: 100, width: 90, height: 200 };
+
+const twoStoreyHouse = ({ withStairs }: { readonly withStairs: boolean }) =>
+  [
+    { kind: "level.upsert", name: "upper", elevationCm: 280, order: 1 },
+    { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+    ...rectangle("ground", "ground-shell", 0, 0, 400, 400),
+    {
+      kind: "room.upsert",
+      level: "ground",
+      entity: { name: "hall", type: "circulation", seed: { x: 300, y: 300 } },
+    },
+    slidingDoor("ground", "entry", "ground-shell-south", 250),
+    ...rectangle("upper", "upper-shell", 0, 0, 400, 400),
+    {
+      kind: "room.upsert",
+      level: "upper",
+      entity: {
+        name: "landing",
+        type: "circulation",
+        seed: { x: 300, y: 300 },
+      },
+    },
+    ...(withStairs
+      ? ([
+          {
+            kind: "stair.upsert",
+            level: "ground",
+            entity: {
+              name: "stairs-up",
+              run: "main",
+              direction: "up",
+              bounds: stairBounds,
+            },
+          },
+          {
+            kind: "stair.upsert",
+            level: "upper",
+            entity: {
+              name: "stairs-down",
+              run: "main",
+              direction: "down",
+              bounds: stairBounds,
+            },
+          },
+          {
+            kind: "void.upsert",
+            level: "upper",
+            entity: { name: "stair-void", bounds: stairBounds },
+          },
+        ] as const)
+      : []),
+  ] as readonly Operation[];
+
 describe("HousePlanEngine", () => {
+  it("reaches an upper-floor room whose only exit is a paired stair run", () => {
+    const result = apply(emptyPlan(), 0, twoStoreyHouse({ withStairs: true }));
+
+    expect(result).not.toHaveProperty("ok");
+  });
+
+  it("rejects an upper-floor room when no stair run connects it", () => {
+    const result = apply(emptyPlan(), 0, twoStoreyHouse({ withStairs: false }));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "ROOM_NOT_REACHABLE_FROM_ENTRY",
+            location: { room: "landing" },
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("surveys a stair run as a connection between the rooms it joins", () => {
+    const plan = applied(twoStoreyHouse({ withStairs: true }));
+
+    const survey = surveyPlan(plan);
+
+    for (const level of survey.levels)
+      expect(level.connections).toContainEqual({
+        kind: "stair",
+        opening: "main",
+        widthCm: 90,
+        sides: [["ground:hall"], ["upper:landing"]],
+      });
+  });
+
+  it("reports how far an opening overruns its host wall", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 400, 300),
+    ]);
+    const invalid = {
+      ...plan,
+      storeys: plan.storeys.map((storey) => ({
+        ...storey,
+        openings: [
+          {
+            id: "window-id",
+            name: "too-wide",
+            wall: "shell-south",
+            type: "window" as const,
+            variant: "fixed",
+            offset: 350,
+            width: 100,
+          },
+        ],
+      })),
+    };
+
+    expect(validate(invalid)).toContainEqual(
+      expect.objectContaining({
+        code: "OPENING_OUTSIDE_WALL",
+        measured: { value: 450, unit: "cm", limit: 400 },
+      }),
+    );
+  });
+
+  it("rejects removal of an entity that does not exist", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+    ]);
+
+    const result = apply(plan, 1, [
+      { kind: "wall.remove", level: "ground", name: "missing" },
+    ]);
+
+    expect(result).toMatchObject({ ok: false, error: { type: "not_found" } });
+  });
+
+  it("removes a level together with its storey", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      { kind: "level.upsert", name: "attic", elevationCm: 280, order: 1 },
+    ]);
+
+    const result = apply(plan, 1, [{ kind: "level.remove", name: "attic" }]);
+
+    expect(result).not.toHaveProperty("ok");
+    if ("ok" in result) return;
+    expect(result.levels.map((level) => level.name)).toEqual(["ground"]);
+    expect(result.storeys).toHaveLength(1);
+  });
+
+  it("keeps an open gap on the concave edge of an L-shaped room walkable", () => {
+    const wall = (
+      name: string,
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+      kind: "exterior" | "interior" = "exterior",
+    ) =>
+      ({
+        kind: "wall.upsert",
+        level: "ground",
+        entity: { name, a, b, thickness: 20, kind },
+      }) as const;
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      wall("south", { x: 0, y: 0 }, { x: 600, y: 0 }),
+      wall("east-lower", { x: 600, y: 0 }, { x: 600, y: 300 }),
+      wall("east-upper", { x: 600, y: 300 }, { x: 600, y: 600 }),
+      wall("north-right", { x: 600, y: 600 }, { x: 300, y: 600 }),
+      wall("north-left", { x: 300, y: 600 }, { x: 0, y: 600 }),
+      wall("west", { x: 0, y: 600 }, { x: 0, y: 0 }),
+      wall(
+        "nook-south-east",
+        { x: 600, y: 300 },
+        { x: 450, y: 300 },
+        "interior",
+      ),
+      wall(
+        "nook-south-west",
+        { x: 350, y: 300 },
+        { x: 300, y: 300 },
+        "interior",
+      ),
+      wall("nook-west", { x: 300, y: 300 }, { x: 300, y: 600 }, "interior"),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 100, y: 100 } },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "nook", type: "living", seed: { x: 450, y: 450 } },
+      },
+      slidingDoor("ground", "entry", "south", 100),
+    ]);
+
+    const [ground] = surveyPlan(plan).levels;
+
+    expect(ground?.faces.map((face) => face.rooms)).toEqual([
+      ["living"],
+      ["nook"],
+    ]);
+    expect(ground?.connections).toContainEqual({
+      kind: "passage",
+      widthCm: 100,
+      sides: [["living"], ["nook"]],
+    });
+  });
+
+  it("rejects a room around a freestanding enclosure instead of miscounting its area", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      slidingDoor("ground", "entry", "shell-south", 400),
+    ]);
+    const withCloset = {
+      ...plan,
+      storeys: plan.storeys.map((storey) => ({
+        ...storey,
+        walls: [
+          ...storey.walls,
+          ...rectangle("ground", "closet", 100, 100, 150, 150).map(
+            ({ entity }, index) => ({
+              ...entity,
+              id: `closet-wall-${index}`,
+              kind: "interior" as const,
+            }),
+          ),
+        ],
+        rooms: [
+          {
+            id: "living-id",
+            name: "living",
+            type: "living",
+            seed: { x: 500, y: 300 },
+          },
+          {
+            id: "closet-id",
+            name: "closet",
+            type: "utility",
+            seed: { x: 175, y: 175 },
+          },
+        ],
+      })),
+    };
+
+    const diagnostics = validate(withCloset);
+    const [ground] = surveyPlan(withCloset).levels;
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "ROOM_FACE_NOT_FOUND",
+        location: { room: "living" },
+        suggestion: expect.stringContaining("freestanding"),
+      }),
+    );
+    expect(ground?.faces).toEqual([
+      expect.objectContaining({
+        id: "100,100,150,150",
+        areaCm2: 22500,
+        rooms: ["closet"],
+      }),
+    ]);
+  });
+
+  it("removes a named resource in the transactional apply flow", () => {
+    const withLevel = apply(emptyPlan(), 0, [
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+    ]);
+    if ("ok" in withLevel) throw new Error(withLevel.error.message);
+    const withWall = apply(withLevel, 1, [
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "wall",
+          a: { x: 0, y: 0 },
+          b: { x: 100, y: 0 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+    ]);
+    if ("ok" in withWall) throw new Error(withWall.error.message);
+
+    const result = apply(withWall, 2, [
+      { kind: "wall.remove", level: "ground", name: "wall" } as Operation,
+    ]);
+
+    expect(result).not.toHaveProperty("ok");
+    if ("ok" in result) return;
+    expect(result.storeys[0]?.walls).toEqual([]);
+  });
   it("derives exactly one closed face and its measurements from authored walls", () => {
     const plan = applied([
       { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
@@ -102,6 +407,130 @@ describe("HousePlanEngine", () => {
       areaCm2: 240000,
       perimeterCm: 2000,
       bounds: { x: 0, y: 0, width: 600, height: 400 },
+    });
+  });
+
+  it("resolves an L-shaped face using its polygon area and seeded room", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "south",
+          a: { x: 0, y: 0 },
+          b: { x: 600, y: 0 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "east-lower",
+          a: { x: 600, y: 0 },
+          b: { x: 600, y: 200 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "notch-south",
+          a: { x: 600, y: 200 },
+          b: { x: 300, y: 200 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "notch-west",
+          a: { x: 300, y: 200 },
+          b: { x: 300, y: 400 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "north",
+          a: { x: 300, y: 400 },
+          b: { x: 0, y: 400 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "west",
+          a: { x: 0, y: 400 },
+          b: { x: 0, y: 0 },
+          thickness: 20,
+          kind: "exterior",
+        },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 100, y: 300 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "notch-south",
+          type: "door",
+          variant: "single",
+          offset: 50,
+          width: 90,
+        },
+      },
+    ]);
+
+    expect(resolvePlan(plan).storeys[0]?.rooms).toEqual([
+      expect.objectContaining({
+        name: "living",
+        bounds: { x: 0, y: 0, width: 600, height: 400 },
+        areaCm2: 180000,
+        perimeterCm: 2000,
+        face: [
+          { x: 0, y: 0 },
+          { x: 600, y: 0 },
+          { x: 600, y: 200 },
+          { x: 300, y: 200 },
+          { x: 300, y: 400 },
+          { x: 0, y: 400 },
+        ],
+      }),
+    ]);
+    expect(surveyPlan(plan).levels[0]).toMatchObject({
+      faceAreaCm2: 180000,
+      roomClaimAreaCm2: 180000,
+      faces: [
+        {
+          id: "polygon:0,0;600,0;600,200;300,200;300,400;0,400",
+          areaCm2: 180000,
+          rooms: ["living"],
+        },
+      ],
+      rooms: [
+        {
+          name: "living",
+          faceId: "polygon:0,0;600,0;600,200;300,200;300,400;0,400",
+          areaCm2: 180000,
+        },
+      ],
     });
   });
 
@@ -266,6 +695,91 @@ describe("HousePlanEngine", () => {
     expect(svg).toContain('class="door-leaf"');
     expect(svg).toContain('class="window"');
     expect(renderSvg(plan, storey)).toBe(svg);
+  });
+
+  it("places a room label fully inside its room and clear of furniture", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 300, 200),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "bathroom", type: "bathroom", seed: { x: 250, y: 30 } },
+      },
+      slidingDoor("ground", "entry", "shell-south", 20),
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "bathtub",
+          label: "Bathtub",
+          center: { x: 150, y: 120 },
+          width: 170,
+          depth: 70,
+          rotation: 0,
+        },
+      },
+    ]);
+    const [storey] = plan.storeys;
+    if (!storey) throw new Error("Expected a ground storey");
+
+    const label = renderSvg(plan, storey).match(
+      /<text class="room-label" x="([-\d.]+)" y="([-\d.]+)" font-size="(\d+)"[^>]*>([^<]+)<\/text>/,
+    );
+
+    expect(label).not.toBeNull();
+    const [, x, svgY, fontSize, text] = label ?? [];
+    const halfWidth = ((text?.length ?? 0) * Number(fontSize) * 0.5) / 2;
+    const halfHeight = Number(fontSize) / 2;
+    const box = {
+      left: Number(x) - halfWidth,
+      right: Number(x) + halfWidth,
+      bottom: -Number(svgY) - halfHeight,
+      top: -Number(svgY) + halfHeight,
+    };
+    const insideWallFaces =
+      box.left >= 10 && box.right <= 290 && box.bottom >= 10 && box.top <= 190;
+    const clearOfBathtub =
+      box.right <= 65 || box.left >= 235 || box.top <= 85 || box.bottom >= 155;
+    expect({ insideWallFaces, clearOfBathtub, box }).toMatchObject({
+      insideWallFaces: true,
+      clearOfBathtub: true,
+    });
+  });
+
+  it("labels a stair once instead of stacking its void name on top of it", () => {
+    const plan = applied(twoStoreyHouse({ withStairs: true }));
+    const upper = plan.storeys.find(
+      (storey) => storey.stairs[0]?.direction === "down",
+    );
+    if (!upper) throw new Error("Expected the upper storey");
+
+    const svg = renderSvg(plan, upper);
+
+    expect(svg).toContain("↓ main");
+    expect(svg).not.toContain(">stair-void</text>");
+    expect(svg).toContain("<title>stair-void</title>");
+  });
+
+  it("draws sliding doors as overlapping panels rather than a bare gap", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
+      },
+      slidingDoor("ground", "terrace", "shell-south", 200),
+    ]);
+    const [storey] = plan.storeys;
+    if (!storey) throw new Error("Expected a ground storey");
+
+    const panels = renderSvg(plan, storey).match(
+      /<g class="door-sliding">(.*?)<\/g>/,
+    );
+
+    expect((panels?.[1]?.match(/<line /g) ?? []).length).toBe(2);
   });
 
   it("renders stair treads instead of an empty circulation rectangle", () => {

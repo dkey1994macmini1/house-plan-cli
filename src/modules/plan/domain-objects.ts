@@ -212,6 +212,23 @@ export class StairOccurrence {
   isContainedBy(voidBounds: Bounds): boolean {
     return containsBounds(voidBounds, this.value.bounds);
   }
+
+  /** The point that decides which derived face a stair lands in. */
+  get center(): Point {
+    const { x, y, width, height } = this.value.bounds;
+    return { x: x + width / 2, y: y + height / 2 };
+  }
+
+  footprintOffsetCm(other: StairOccurrence): number {
+    const left = this.value.bounds;
+    const right = other.value.bounds;
+    return (
+      Math.abs(left.x - right.x) +
+      Math.abs(left.y - right.y) +
+      Math.abs(left.width - right.width) +
+      Math.abs(left.height - right.height)
+    );
+  }
 }
 
 /** Domain object: owns room seed-to-face matching behavior. */

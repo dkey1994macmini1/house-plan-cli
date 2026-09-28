@@ -14,11 +14,11 @@ Each `data.levels[]` entry is one storey, ordered by `order`.
 | `bounds` | Footprint of derived faces, centimetres. `width` is the X extent, `height` is the Y extent. An L-shaped plan's box is larger than its floor area. |
 | `faceAreaCm2` | Sum of derived faces, each face once. This is the floor area. |
 | `roomClaimAreaCm2` | Sum of per-room areas. Larger than `faceAreaCm2` when two room seeds share a face. |
-| `faces[]` | One closed rectangle. `id` is `x,y,width,height`. `rooms` lists every seed inside it. |
+| `faces[]` | One closed orthogonal polygon. A rectangle's `id` is `x,y,width,height`; an L/T face's `id` is `polygon:x,y;x,y;…` and it also carries `vertices`. `bounds` is the bounding box, `areaCm2` the true polygon area. `rooms` lists every seed inside it. |
 | `rooms[]` | Name, type, `faceId`, `widthCm` (X), `depthCm` (Y), `areaCm2`. `exteriorDoors` and `windows` touch that face. `objects` are those whose center is strictly inside the same face. |
-| `connections[]` | `kind` `door` or `passage`. `widthCm` is the door width or the uncovered gap. `sides` is two sorted lists: room names on each side, `"outside"` for an exterior door, or `face:<id>` when that side has no room. |
+| `connections[]` | `kind` `door`, `passage` or `stair`. `widthCm` is the door width, the uncovered gap, or the stair width. `sides` is two sorted lists: room names on each side, `"outside"` for an exterior door, or `face:<id>` when that side has no room. A `stair` connection names its run in `opening`, appears on both levels it joins, and labels sides `level:room` (or `level:face:<id>`). |
 | `objectsOutsideRooms` | Objects whose center is not inside any face. |
-| `stairs` / `voids` | Authored footprints on this storey. Paired stairs do not imply a walk from this storey to another. |
+| `stairs` / `voids` | Authored footprints on this storey. Only runs listed as `stair` connections carry circulation between levels. |
 
 A room with `faceId: null` has no closed face. Its area fields are null and it is absent from `faces[].rooms`.
 </patterns>
@@ -45,4 +45,8 @@ A room with `faceId: null` has no closed face. Its area fields are null and it i
 ## Passage
 
 `{ "kind": "passage", "widthCm": 500, "sides": [["east-room"], ["west-room"]] }` is an uncovered gap of 500 cm between those rooms. The drawn wall is shorter than the zone boundary; the gap is the walkable opening.
+
+## Stair
+
+`{ "kind": "stair", "opening": "main", "widthCm": 90, "sides": [["ground:hall"], ["upper:landing"]] }` is the `main` run climbing from the ground-floor hall to the upper landing. It is how upper rooms reach the exterior entry.
 </examples>

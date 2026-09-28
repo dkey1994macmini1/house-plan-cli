@@ -2,19 +2,33 @@ import { StoreyCirculation } from "./circulation.js";
 import { PlanObject, StairOccurrence, WallSegment } from "./domain-objects.js";
 import { boundsOverlap, isGridCentimetre } from "./geometry.js";
 import type { Diagnostic, HousePlan, Named, Storey } from "./model.js";
-import { DerivedTopology } from "./topology.js";
+import {
+  type ConnectingStairRun,
+  connectingStairRuns,
+  runClimbsBetweenAlignedLandings,
+  type StairLanding,
+  stairRuns,
+  upperLandingOpensIntoVoid,
+} from "./stair-runs.js";
+import {
+  type DerivedFace,
+  DerivedTopology,
+  pointStrictlyInsideFace,
+} from "./topology.js";
 
 const error = (
   code: string,
   message: string,
   location?: Record<string, string>,
   suggestion?: string,
+  measured?: Diagnostic["measured"],
 ): Diagnostic => ({
   code,
   severity: "error",
   message,
   ...(location ? { location } : {}),
   ...(suggestion ? { suggestion } : {}),
+  ...(measured ? { measured } : {}),
 });
 const named = <T extends Named>(
   values: readonly T[],
@@ -92,9 +106,15 @@ const validateWall = (wall: Storey["walls"][number]): readonly Diagnostic[] => {
       : []),
     ...(segment.lengthCm === 0
       ? [
-          error("WALL_ZERO_LENGTH", `Wall '${wall.name}' has zero length`, {
-            wall: wall.name,
-          }),
+          error(
+            "WALL_ZERO_LENGTH",
+            `Wall '${wall.name}' has zero length`,
+            {
+              wall: wall.name,
+            },
+            undefined,
+            { value: segment.lengthCm, unit: "cm", limit: 0 },
+          ),
         ]
       : []),
   ];
@@ -112,29 +132,36 @@ const validateRoomSeeds = (storey: Storey): readonly Diagnostic[] => {
           "Move the seed inside exactly one closed face.",
         ),
       ];
-    return topology.faceContaining(room.seed)
-      ? []
-      : [
-          error(
-            "ROOM_FACE_NOT_FOUND",
-            `Room '${room.name}' seed has no unique closed face`,
-            { room: room.name },
-            "Close a wall face around the seed or move the seed inside it.",
-          ),
-        ];
+    if (topology.faceContaining(room.seed)) return [];
+    return [
+      error(
+        "ROOM_FACE_NOT_FOUND",
+        `Room '${room.name}' seed has no unique closed face`,
+        { room: room.name },
+        topology.surroundsFreestandingLoopAt(room.seed)
+          ? "The zone around this seed contains a freestanding wall loop; connect that enclosure to a boundary wall so the zone is split."
+          : "Close a wall face around the seed or move the seed inside it.",
+      ),
+    ];
   });
 };
 
-const validateRoomAccess = (storey: Storey): readonly Diagnostic[] => {
+const validateRoomAccess = (
+  storey: Storey,
+  connectingStairIds: ReadonlySet<string>,
+): readonly Diagnostic[] => {
   const circulation = new StoreyCirculation(storey);
-  const unreachable = new Set(
-    circulation.unreachableRooms().map((room) => room.id),
-  );
+  const holdsConnectingStair = (face: DerivedFace): boolean =>
+    storey.stairs.some(
+      (stair) =>
+        connectingStairIds.has(stair.id) &&
+        pointStrictlyInsideFace(face, new StairOccurrence(stair).center),
+    );
   return storey.rooms.flatMap((room) => {
     const face = circulation.faceForRoom(room);
     if (!face) return [];
     return [
-      ...(!circulation.hasExit(face)
+      ...(!circulation.hasExit(face) && !holdsConnectingStair(face)
         ? [
             error(
               "ROOM_WITHOUT_DOOR",
@@ -144,17 +171,84 @@ const validateRoomAccess = (storey: Storey): readonly Diagnostic[] => {
             ),
           ]
         : []),
-      ...(unreachable.has(room.id)
+    ];
+  });
+};
+
+const nodeId = (storeyId: string, face: number): string =>
+  `${storeyId}:${face}`;
+
+const validateBuildingReachability = (
+  plan: HousePlan,
+  connectingRuns: readonly ConnectingStairRun[],
+): readonly Diagnostic[] => {
+  const outside = "outside";
+  const graph = new Map<string, Set<string>>([[outside, new Set()]]);
+  const connect = (left: string, right: string): void => {
+    graph.get(left)?.add(right);
+    graph.get(right)?.add(left);
+  };
+  const circulations = new Map(
+    plan.storeys.map((storey) => [storey.id, new StoreyCirculation(storey)]),
+  );
+  for (const storey of plan.storeys) {
+    const circulation = circulations.get(storey.id);
+    if (!circulation) continue;
+    circulation.faces.forEach((_, index) => {
+      graph.set(nodeId(storey.id, index), new Set());
+    });
+    for (const access of circulation.accesses()) {
+      const [left, right] = access.sides;
+      connect(
+        left === "outside" ? outside : nodeId(storey.id, left),
+        right === "outside" ? outside : nodeId(storey.id, right),
+      );
+    }
+  }
+  const landingFace = (landing: StairLanding): number => {
+    const center = new StairOccurrence(landing.stair).center;
+    return (
+      circulations
+        .get(landing.storey.id)
+        ?.faces.findIndex((face) => pointStrictlyInsideFace(face, center)) ?? -1
+    );
+  };
+  for (const { lower, upper } of connectingRuns) {
+    const lowerFace = landingFace(lower);
+    const upperFace = landingFace(upper);
+    if (lowerFace >= 0 && upperFace >= 0)
+      connect(
+        nodeId(lower.storey.id, lowerFace),
+        nodeId(upper.storey.id, upperFace),
+      );
+  }
+  const visited = new Set([outside]);
+  const queue = [outside];
+  for (const current of queue) {
+    for (const neighbor of graph.get(current) ?? []) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+  return plan.storeys.flatMap((storey) => {
+    const circulation = circulations.get(storey.id);
+    if (!circulation) return [];
+    return storey.rooms.flatMap((room) => {
+      const face = circulation.faceForRoom(room);
+      const index = face ? circulation.faces.indexOf(face) : -1;
+      return index >= 0 && !visited.has(nodeId(storey.id, index))
         ? [
             error(
               "ROOM_NOT_REACHABLE_FROM_ENTRY",
               `Room '${room.name}' has no walkable path to an exterior entry door`,
               { room: room.name },
-              "Connect this room through doors or open passages to a door on the exterior wall.",
+              "Connect this room through doors, passages, or a valid paired stair run.",
             ),
           ]
-        : []),
-    ];
+        : [];
+    });
   });
 };
 
@@ -201,6 +295,14 @@ const validateOpeningPlacement = (storey: Storey): readonly Diagnostic[] =>
               "OPENING_OUTSIDE_WALL",
               `Opening '${opening.name}' does not fit '${host.name}'`,
               { opening: opening.name, wall: host.name },
+              "Keep offset > 0 and offset + width below the host wall length.",
+              invalidMeasurement
+                ? undefined
+                : {
+                    value: opening.offset + opening.width,
+                    unit: "cm",
+                    limit: hostWall.lengthCm,
+                  },
             ),
           ]
         : []),
@@ -355,54 +457,35 @@ const validateDoorStairApproaches = (storey: Storey): readonly Diagnostic[] =>
     );
   });
 
-const validateStairRuns = (plan: HousePlan): readonly Diagnostic[] => {
-  const occurrences = plan.storeys.flatMap((storey) => {
-    const level = plan.levels.find(
-      (candidate) => candidate.id === storey.levelId,
-    );
-    return level
-      ? storey.stairs.map((stair) => ({
-          stair,
-          storey,
-          level,
-          occurrence: new StairOccurrence(stair),
-        }))
-      : [];
-  });
-  const representatives = [
-    ...new Map(occurrences.map((item) => [item.stair.run, item])).values(),
-  ];
-  return representatives.flatMap((current) => {
-    const pair = occurrences
-      .filter((candidate) => candidate.stair.run === current.stair.run)
-      .toSorted((left, right) => left.level.order - right.level.order);
-    const [lower, upper] = pair;
-    if (!lower || !upper || pair.length !== 2)
+const validateStairRuns = (plan: HousePlan): readonly Diagnostic[] =>
+  stairRuns(plan).flatMap(({ run, landings }) => {
+    const [lower, upper] = landings;
+    if (!lower || !upper || landings.length !== 2)
       return [
         error(
           "STAIR_RUN_UNPAIRED",
-          `Stair run '${current.stair.run}' must occur exactly twice`,
-          { stair: current.stair.name },
+          `Stair run '${run}' must occur exactly twice`,
+          { stair: (lower ?? upper)?.stair.name ?? run },
         ),
       ];
-    const directionsOrFootprintsMismatch =
-      lower.stair.direction !== "up" ||
-      upper.stair.direction !== "down" ||
-      !lower.occurrence.matchesCounterpart(upper.occurrence);
-    const upperVoidMissing = !upper.storey.voids.some((voidItem) =>
-      upper.occurrence.isContainedBy(voidItem.bounds),
-    );
+    const footprintOffsetCm = new StairOccurrence(
+      lower.stair,
+    ).footprintOffsetCm(new StairOccurrence(upper.stair));
     return [
-      ...(directionsOrFootprintsMismatch
+      ...(!runClimbsBetweenAlignedLandings(lower, upper)
         ? [
             error(
               "STAIR_RUN_MISMATCH",
-              `Stair run '${current.stair.run}' has invalid direction or footprint`,
-              { stair: current.stair.name },
+              `Stair run '${run}' has invalid direction or footprint`,
+              { stair: lower.stair.name },
+              undefined,
+              footprintOffsetCm > 0
+                ? { value: footprintOffsetCm, unit: "cm", limit: 0 }
+                : undefined,
             ),
           ]
         : []),
-      ...(upperVoidMissing
+      ...(!upperLandingOpensIntoVoid(upper)
         ? [
             error(
               "STAIR_VOID_MISSING",
@@ -413,16 +496,22 @@ const validateStairRuns = (plan: HousePlan): readonly Diagnostic[] => {
         : []),
     ];
   });
-};
 
-export const validate = (plan: HousePlan): readonly Diagnostic[] =>
-  [
+export const validate = (plan: HousePlan): readonly Diagnostic[] => {
+  const connectingRuns = connectingStairRuns(plan);
+  const connectingStairIds = new Set(
+    connectingRuns.flatMap(({ lower, upper }) => [
+      lower.stair.id,
+      upper.stair.id,
+    ]),
+  );
+  return [
     ...validateLevels(plan),
     ...plan.storeys.flatMap((storey) => [
       ...validateStoreyNames(storey),
       ...storey.walls.flatMap(validateWall),
       ...validateRoomSeeds(storey),
-      ...validateRoomAccess(storey),
+      ...validateRoomAccess(storey, connectingStairIds),
       ...validateOpeningPlacement(storey),
       ...validateOpeningCollisions(storey),
       ...validateObjects(storey),
@@ -430,8 +519,10 @@ export const validate = (plan: HousePlan): readonly Diagnostic[] =>
       ...validateDoorStairApproaches(storey),
     ]),
     ...validateStairRuns(plan),
+    ...validateBuildingReachability(plan, connectingRuns),
   ].toSorted(
     (left, right) =>
       left.code.localeCompare(right.code) ||
       left.message.localeCompare(right.message),
   );
+};

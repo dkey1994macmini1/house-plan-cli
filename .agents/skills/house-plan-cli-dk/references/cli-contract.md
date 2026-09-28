@@ -8,8 +8,8 @@
 | `validate --plan FILE` | plan path | `plan.validation`, `data.valid`, optional `meta.diagnostics` |
 | `report --plan FILE` | plan path | `plan.report`, `data.plan` (resolved), `data.valid`, optional `meta.diagnostics` |
 | `survey --plan FILE` | plan path | `plan.survey`, `data.revision`, `data.valid`, `data.levels` (compact spatial reading). Does not write the plan. |
-| `render --plan FILE --level LEVEL --out FILE` | level name + SVG path | `plan.rendered`, rendered file metadata |
-| `render --plan FILE --all-levels --out-dir DIR` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files` |
+| `render --plan FILE --level LEVEL --out FILE [--allow-invalid]` | level name + SVG path | `plan.rendered`, rendered file metadata |
+| `render --plan FILE --all-levels --out-dir DIR [--allow-invalid]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files` |
 | `commands` | none | `commands`, supported grammar and exit codes |
 | `schema` | none | `schema`, Draft-07 JSON Schema for the **operation array** in `data` |
 
