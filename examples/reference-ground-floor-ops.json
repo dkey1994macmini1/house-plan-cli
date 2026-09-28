@@ -393,6 +393,20 @@
     "kind": "opening.upsert",
     "level": "ground",
     "entity": {
+      "name": "living-door",
+      "wall": "dining-living",
+      "type": "door",
+      "variant": "single",
+      "offset": 650,
+      "width": 80,
+      "hinge": "left",
+      "swing": "out"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "ground",
+    "entity": {
       "name": "kitchen-window",
       "wall": "north",
       "type": "window",
@@ -409,7 +423,7 @@
       "wall": "west",
       "type": "window",
       "variant": "fixed",
-      "offset": 900,
+      "offset": 80,
       "width": 100
     }
   },
@@ -421,7 +435,7 @@
       "wall": "west",
       "type": "window",
       "variant": "fixed",
-      "offset": 600,
+      "offset": 350,
       "width": 140
     }
   },
@@ -433,7 +447,7 @@
       "wall": "west",
       "type": "window",
       "variant": "fixed",
-      "offset": 170,
+      "offset": 700,
       "width": 140
     }
   },

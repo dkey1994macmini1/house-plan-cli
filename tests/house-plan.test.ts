@@ -80,6 +80,20 @@ describe("HousePlanEngine", () => {
         level: "ground",
         entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
       },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 250,
+          width: 90,
+          hinge: "left",
+          swing: "in",
+        },
+      },
     ]);
     const resolved = resolvePlan(plan);
     expect(resolved.storeys[0]?.rooms[0]).toMatchObject({
@@ -376,6 +390,20 @@ describe("HousePlanEngine", () => {
           name: "east-room",
           type: "kitchen",
           seed: { x: 450, y: 200 },
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "connecting-door",
+          wall: "divider",
+          type: "door",
+          variant: "single",
+          offset: 150,
+          width: 80,
+          hinge: "left",
+          swing: "in",
         },
       },
     ]);

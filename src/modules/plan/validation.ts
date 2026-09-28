@@ -124,6 +124,69 @@ const validateRoomSeeds = (storey: Storey): readonly Diagnostic[] => {
   });
 };
 
+const wallBordersFace = (
+  wall: Storey["walls"][number],
+  bounds: { x: number; y: number; width: number; height: number },
+): boolean => {
+  const horizontal = wall.a.y === wall.b.y;
+  const vertical = wall.a.x === wall.b.x;
+  return (
+    (horizontal &&
+      (wall.a.y === bounds.y || wall.a.y === bounds.y + bounds.height) &&
+      Math.max(wall.a.x, wall.b.x) > bounds.x &&
+      Math.min(wall.a.x, wall.b.x) < bounds.x + bounds.width) ||
+    (vertical &&
+      (wall.a.x === bounds.x || wall.a.x === bounds.x + bounds.width) &&
+      Math.max(wall.a.y, wall.b.y) > bounds.y &&
+      Math.min(wall.a.y, wall.b.y) < bounds.y + bounds.height)
+  );
+};
+
+const validateRoomAccess = (storey: Storey): readonly Diagnostic[] => {
+  const topology = new DerivedTopology(storey.walls);
+  return storey.rooms.flatMap((room) => {
+    const face = topology.faceContaining(room.seed);
+    if (!face) return [];
+    const hasDoor = storey.openings.some((opening) => {
+      const host =
+        opening.type === "door" ? named(storey.walls, opening.wall) : undefined;
+      return host !== undefined && wallBordersFace(host, face.bounds);
+    });
+    return hasDoor
+      ? []
+      : [
+          error(
+            "ROOM_WITHOUT_DOOR",
+            `Room '${room.name}' has no door on its derived boundary`,
+            { room: room.name },
+            "Add a hosted door opening on a wall bordering this room.",
+          ),
+        ];
+  });
+};
+
+const openingCrossesWallJunction = (
+  opening: Storey["openings"][number],
+  host: Storey["walls"][number],
+  walls: readonly Storey["walls"][number][],
+): boolean => {
+  const hostSegment = new WallSegment(host);
+  const { start, end } = hostSegment.openingEndpoints(opening);
+  const horizontal = host.a.y === host.b.y;
+  const withinOpening = (point: { x: number; y: number }): boolean =>
+    horizontal
+      ? point.y === host.a.y &&
+        point.x > Math.min(start.x, end.x) &&
+        point.x < Math.max(start.x, end.x)
+      : point.x === host.a.x &&
+        point.y > Math.min(start.y, end.y) &&
+        point.y < Math.max(start.y, end.y);
+  return walls
+    .filter((wall) => wall.id !== host.id)
+    .flatMap((wall) => [wall.a, wall.b])
+    .some(withinOpening);
+};
+
 const validateOpeningPlacement = (storey: Storey): readonly Diagnostic[] =>
   storey.openings.flatMap((opening) => {
     const host = named(storey.walls, opening.wall);
@@ -138,15 +201,27 @@ const validateOpeningPlacement = (storey: Storey): readonly Diagnostic[] =>
     const hostWall = new WallSegment(host);
     const invalidMeasurement =
       !isGridCentimetre(opening.offset) || !isGridCentimetre(opening.width);
-    return invalidMeasurement || !hostWall.containsOpening(opening)
-      ? [
-          error(
-            "OPENING_OUTSIDE_WALL",
-            `Opening '${opening.name}' does not fit '${host.name}'`,
-            { opening: opening.name, wall: host.name },
-          ),
-        ]
-      : [];
+    return [
+      ...(invalidMeasurement || !hostWall.containsOpening(opening)
+        ? [
+            error(
+              "OPENING_OUTSIDE_WALL",
+              `Opening '${opening.name}' does not fit '${host.name}'`,
+              { opening: opening.name, wall: host.name },
+            ),
+          ]
+        : []),
+      ...(openingCrossesWallJunction(opening, host, storey.walls)
+        ? [
+            error(
+              "OPENING_CROSSES_WALL_JUNCTION",
+              `Opening '${opening.name}' crosses a junction on '${host.name}'`,
+              { opening: opening.name, wall: host.name },
+              "Move the opening between wall junctions.",
+            ),
+          ]
+        : []),
+    ];
   });
 
 const validateOpeningCollisions = (storey: Storey): readonly Diagnostic[] =>
@@ -310,6 +385,7 @@ export const validate = (plan: HousePlan): readonly Diagnostic[] =>
       ...validateStoreyNames(storey),
       ...storey.walls.flatMap(validateWall),
       ...validateRoomSeeds(storey),
+      ...validateRoomAccess(storey),
       ...validateOpeningPlacement(storey),
       ...validateOpeningCollisions(storey),
       ...validateObjects(storey),

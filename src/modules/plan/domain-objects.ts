@@ -36,9 +36,9 @@ export class WallSegment {
   }
   containsOpening(opening: Opening): boolean {
     return (
-      opening.offset >= 0 &&
+      opening.offset > 0 &&
       opening.width > 0 &&
-      opening.offset + opening.width <= this.lengthCm
+      opening.offset + opening.width < this.lengthCm
     );
   }
   overlaps(left: Opening, right: Opening): boolean {
