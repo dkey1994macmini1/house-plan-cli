@@ -51,7 +51,7 @@
     "entity": {
       "name": "kitchen-divider",
       "a": { "x": 0, "y": 750 },
-      "b": { "x": 500, "y": 750 },
+      "b": { "x": 900, "y": 750 },
       "thickness": 12,
       "kind": "interior"
     }
@@ -62,7 +62,29 @@
     "entity": {
       "name": "bedroom-divider",
       "a": { "x": 0, "y": 400 },
+      "b": { "x": 900, "y": 400 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "living-divider",
+      "a": { "x": 500, "y": 0 },
       "b": { "x": 500, "y": 400 },
+      "thickness": 12,
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "wall.upsert",
+    "level": "parter",
+    "entity": {
+      "name": "upper-divider",
+      "a": { "x": 500, "y": 400 },
+      "b": { "x": 500, "y": 1100 },
       "thickness": 12,
       "kind": "interior"
     }
@@ -73,8 +95,7 @@
     "entity": {
       "name": "kitchen",
       "type": "kitchen",
-      "seed": { "x": 250, "y": 925 },
-      "bounds": { "x": 0, "y": 750, "width": 500, "height": 350 }
+      "seed": { "x": 250, "y": 925 }
     }
   },
   {
@@ -83,8 +104,7 @@
     "entity": {
       "name": "dining",
       "type": "dining",
-      "seed": { "x": 450, "y": 575 },
-      "bounds": { "x": 0, "y": 400, "width": 900, "height": 350 }
+      "seed": { "x": 450, "y": 575 }
     }
   },
   {
@@ -93,8 +113,7 @@
     "entity": {
       "name": "bedroom-1",
       "type": "bedroom",
-      "seed": { "x": 250, "y": 200 },
-      "bounds": { "x": 0, "y": 0, "width": 500, "height": 400 }
+      "seed": { "x": 250, "y": 200 }
     }
   },
   {
@@ -103,8 +122,7 @@
     "entity": {
       "name": "living",
       "type": "living",
-      "seed": { "x": 700, "y": 200 },
-      "bounds": { "x": 500, "y": 0, "width": 400, "height": 400 }
+      "seed": { "x": 700, "y": 200 }
     }
   },
   {
@@ -151,7 +169,7 @@
     "entity": {
       "name": "dining-table",
       "label": "Stół",
-      "center": { "x": 450, "y": 570 },
+      "center": { "x": 350, "y": 680 },
       "width": 180,
       "depth": 90,
       "rotation": 0
@@ -163,7 +181,7 @@
     "entity": {
       "name": "sofa",
       "label": "Sofa",
-      "center": { "x": 700, "y": 180 },
+      "center": { "x": 700, "y": 300 },
       "width": 180,
       "depth": 80,
       "rotation": 0

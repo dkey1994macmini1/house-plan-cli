@@ -1,214 +1,260 @@
 #!/usr/bin/env node
-// @ts-nocheck
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
+import * as Either from "effect/Either";
+import { loadPlan, savePlan } from "./modules/filesystem/plan-file.js";
+import type { Failure, HousePlan } from "./modules/plan/index.js";
 import {
   apply,
   emptyPlan,
   failure,
-  loadPlan,
-  renderSvg,
-  savePlan,
+  resolvePlan,
   success,
   validate,
-} from "./house-plan.js";
+} from "./modules/plan/index.js";
+import {
+  decodeOperations,
+  hasGridMeasurements,
+  hasValidLevelOrders,
+  operationJsonSchema,
+} from "./modules/plan/schema.js";
+import {
+  renderAllLevelsToDirectory,
+  renderLevelToFile,
+} from "./modules/render/render-service.js";
 
-const output = (value: unknown, code = 0): never => {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
-  process.exit(code);
-};
-const error = (value: ReturnType<typeof failure>, code: number): never => {
-  process.stderr.write(`${JSON.stringify(value)}\n`);
-  process.exit(code);
-};
-const arg = (name: string): string | undefined => {
+type Exit = Readonly<{
+  stream: "stdout" | "stderr";
+  status: number;
+  value: unknown;
+}>;
+
+const commandNames = [
+  "init",
+  "apply",
+  "validate",
+  "render",
+  "report",
+  "commands",
+  "schema",
+] as const;
+const asExit = (
+  stream: Exit["stream"],
+  status: number,
+  value: unknown,
+): Exit => ({ stream, status, value });
+const succeeded = <T>(type: string, data: T, revision?: number): Exit =>
+  asExit("stdout", 0, success(type, data, revision));
+const failed = (value: Failure, status: number): Exit =>
+  asExit("stderr", status, value);
+const readArgument = (name: string): string | undefined => {
   const index = process.argv.indexOf(name);
   return index < 0 ? undefined : process.argv[index + 1];
 };
-const help = (): never =>
-  output(
-    success("help", {
-      commands: [
-        "init --out plan.json",
-        "apply --plan plan.json --input operations.json --expected-revision N [--dry-run]",
-        "validate --plan plan.json",
-        "render --plan plan.json --level LEVEL --out level.svg",
-        "report --plan plan.json",
-        "commands",
-        "schema",
-      ],
-      examples: [
-        "house-plan init --out plan.json",
-        "house-plan apply --plan plan.json --input operations.json --expected-revision 0",
-        "house-plan render --plan plan.json --level parter --out parter.svg",
-      ],
-    }),
+const hasFlag = (name: string): boolean => process.argv.includes(name);
+const invalidInput = (message: string, hint: string): Exit =>
+  failed(failure("invalid_input", message, hint), 2);
+const isExit = (value: unknown): value is Exit =>
+  typeof value === "object" && value !== null && "stream" in value;
+const isFailure = (value: HousePlan | Failure): value is Failure =>
+  "ok" in value && !value.ok;
+
+const requireArgument = (name: string): string | Exit =>
+  readArgument(name) ??
+  invalidInput(`Missing ${name}`, `Pass ${name} with a value.`);
+const jsonHelp = (): Exit =>
+  succeeded("help", {
+    commands: [
+      "init --out plan.json",
+      "apply --plan plan.json --input operations.json --expected-revision N [--dry-run]",
+      "validate --plan plan.json",
+      "render --plan plan.json --level LEVEL --out level.svg",
+      "render --plan plan.json --all-levels --out-dir svgs",
+      "report --plan plan.json",
+      "commands",
+      "schema",
+    ],
+    examples: [
+      "house-plan init --out plan.json",
+      "house-plan apply --plan plan.json --input operations.json --expected-revision 0",
+      "house-plan render --plan plan.json --level ground --out ground.svg",
+    ],
+  });
+
+const initializePlan = async (): Promise<Exit> => {
+  const path = requireArgument("--out");
+  if (isExit(path)) return path;
+  await savePlan(path, emptyPlan());
+  return succeeded("plan.initialized", { path }, 0);
+};
+
+const loadRequestedPlan = async (): Promise<HousePlan | Exit> => {
+  const path = requireArgument("--plan");
+  return isExit(path) ? path : loadPlan(path);
+};
+
+const validateRequestedPlan = (plan: HousePlan): Exit => {
+  const diagnostics = validate(plan);
+  return asExit(
+    "stdout",
+    0,
+    success(
+      "plan.validation",
+      {
+        valid: !diagnostics.some(
+          (diagnostic) => diagnostic.severity === "error",
+        ),
+      },
+      plan.revision,
+      diagnostics,
+    ),
   );
-const main = async (): Promise<void> => {
-  const command = process.argv[2];
-  if (!command || command === "--help" || command === "help") help();
-  if (command === "commands")
-    output(
-      success("commands", {
-        commands: ["init", "apply", "validate", "render", "report", "schema"],
-      }),
-    );
-  if (command === "schema")
-    output(
-      success("schema", {
-        schemaVersion: 1,
-        unit: "cm",
-        precision: 0.1,
-        operations: [
-          "level.upsert",
-          "wall.upsert",
-          "room.upsert",
-          "opening.upsert",
-          "object.upsert",
-          "stair.upsert",
-          "void.upsert",
-        ],
-      }),
-    );
-  if (command === "init") {
-    const out = arg("--out");
-    if (!out)
-      error(
-        failure(
-          "invalid_input",
-          "Missing --out",
-          "Run house-plan init --out plan.json",
+};
+
+const reportRequestedPlan = (plan: HousePlan): Exit => {
+  const diagnostics = validate(plan);
+  return asExit(
+    "stdout",
+    0,
+    success(
+      "plan.report",
+      {
+        plan: resolvePlan(plan),
+        valid: !diagnostics.some(
+          (diagnostic) => diagnostic.severity === "error",
         ),
-        2,
-      );
-    await savePlan(out, emptyPlan());
-    output(success("plan.initialized", { path: out }, 0));
-  }
-  const path = arg("--plan");
-  if (!path)
-    error(
-      failure("invalid_input", "Missing --plan", "Pass --plan plan.json"),
-      2,
+      },
+      plan.revision,
+      diagnostics,
+    ),
+  );
+};
+
+const applyRequestedOperations = async (plan: HousePlan): Promise<Exit> => {
+  const inputPath = requireArgument("--input");
+  const revision = Number(readArgument("--expected-revision"));
+  if (isExit(inputPath)) return inputPath;
+  if (!Number.isInteger(revision))
+    return invalidInput(
+      "apply requires integer --expected-revision",
+      "Pass the current plan revision.",
     );
-  const plan = await loadPlan(path);
-  if (command === "validate") {
-    const diagnostics = validate(plan);
-    output(
-      success(
-        "plan.validation",
-        { valid: !diagnostics.some((d) => d.severity === "error") },
-        plan.revision,
-        diagnostics,
-      ),
+  let rawOperations: unknown;
+  try {
+    rawOperations = JSON.parse(await readFile(inputPath, "utf8"));
+  } catch {
+    return invalidInput(
+      "Operation document is not valid JSON",
+      "Pass a JSON array of HousePlan operations.",
     );
   }
-  if (command === "report") {
-    const diagnostics = validate(plan);
-    output(
-      success(
-        "plan.report",
-        {
-          levels: plan.levels.map((level) => ({
-            name: level.name,
-            elevationCm: level.elevationCm,
-            storey: plan.storeys.find((storey) => storey.levelId === level.id),
-          })),
-          valid: !diagnostics.some((d) => d.severity === "error"),
-        },
-        plan.revision,
-        diagnostics,
-      ),
+  const decoded = decodeOperations(rawOperations);
+  if (Either.isLeft(decoded))
+    return invalidInput(
+      "Operation document does not match the HousePlan schema",
+      decoded.left.message,
     );
-  }
-  if (command === "apply") {
-    const input = arg("--input");
-    const revision = Number(arg("--expected-revision"));
-    if (!input || !Number.isInteger(revision))
-      error(
-        failure(
-          "invalid_input",
-          "apply requires --input and integer --expected-revision",
-          "Pass a JSON operations file and current plan revision.",
-        ),
-        2,
-      );
-    const operations = JSON.parse(await readFile(input, "utf8")) as Record<
-      string,
-      unknown
-    >[];
-    const result = apply(plan, revision, operations);
-    if ("ok" in result && !result.ok)
-      error(result, result.error.type === "revision_conflict" ? 5 : 2);
-    if (process.argv.includes("--dry-run"))
-      output(
-        success(
-          "plan.dry_run",
-          { plan: result },
-          plan.revision,
-          validate(result),
-        ),
-      );
-    await savePlan(path, result);
-    output(
+  if (!hasGridMeasurements(decoded.right))
+    return invalidInput(
+      "Operation dimensions must use a 0.1 cm grid",
+      "Use finite centimetres with at most one decimal place.",
+    );
+  if (!hasValidLevelOrders(decoded.right))
+    return invalidInput(
+      "Level order must be an integer",
+      "Pass an integer order for every level.upsert operation.",
+    );
+  const result = apply(plan, revision, decoded.right);
+  if (isFailure(result))
+    return failed(
+      result,
+      result.error.type === "revision_conflict" ||
+        result.error.type === "not_found"
+        ? 5
+        : 2,
+    );
+  if (hasFlag("--dry-run"))
+    return asExit(
+      "stdout",
+      0,
       success(
-        "plan.applied",
+        "plan.dry_run",
         { plan: result },
-        result.revision,
+        plan.revision,
         validate(result),
       ),
     );
-  }
-  if (command === "render") {
-    const levelName = arg("--level");
-    const out = arg("--out");
-    const level = plan.levels.find((value) => value.name === levelName);
-    const storey = level
-      ? plan.storeys.find((value) => value.levelId === level.id)
-      : undefined;
-    if (!level || !storey || !out)
-      error(
-        failure(
-          "invalid_input",
-          "render requires an existing --level and --out",
-          "Use report to inspect levels, then pass a writable output path.",
-        ),
-        2,
-      );
-    const diagnostics = validate(plan);
-    if (diagnostics.some((d) => d.severity === "error"))
-      error(
-        failure(
-          "invalid_input",
-          "Cannot render an invalid plan",
-          "Run validate and fix errors first.",
-          diagnostics,
-        ),
-        2,
-      );
-    await writeFile(out, renderSvg(plan, storey), "utf8");
-    output(
-      success(
-        "plan.rendered",
-        { path: out, level: level.name },
-        plan.revision,
-        diagnostics,
-      ),
-    );
-  }
-  error(
-    failure(
-      "invalid_input",
-      `Unknown command '${command}'`,
-      "Run house-plan --help",
+  const planPath = readArgument("--plan");
+  if (!planPath) return invalidInput("Missing --plan", "Pass --plan plan.json");
+  await savePlan(planPath, result);
+  return asExit(
+    "stdout",
+    0,
+    success(
+      "plan.applied",
+      { plan: result },
+      result.revision,
+      validate(result),
     ),
-    2,
   );
 };
-Effect.runPromise(
-  Effect.tryPromise({ try: main, catch: (cause) => cause }),
-).catch((cause) =>
-  error(
-    failure("internal", String(cause), "Run with valid JSON and arguments."),
-    1,
-  ),
-);
+
+const renderRequestedPlan = async (plan: HousePlan): Promise<Exit> => {
+  if (hasFlag("--all-levels")) {
+    const directory = requireArgument("--out-dir");
+    if (isExit(directory)) return directory;
+    const files = await renderAllLevelsToDirectory(plan, directory);
+    return succeeded(
+      "plan.rendered_all_levels",
+      { directory, files },
+      plan.revision,
+    );
+  }
+  const level = requireArgument("--level");
+  const path = requireArgument("--out");
+  if (isExit(level)) return level;
+  if (isExit(path)) return path;
+  const file = await renderLevelToFile(plan, level, path);
+  return succeeded("plan.rendered", file, plan.revision);
+};
+
+const executePlanCommand = async (command: string): Promise<Exit> => {
+  const plan = await loadRequestedPlan();
+  if (isExit(plan)) return plan;
+  if (command === "apply") return applyRequestedOperations(plan);
+  if (command === "validate") return validateRequestedPlan(plan);
+  if (command === "report") return reportRequestedPlan(plan);
+  if (command === "render") return renderRequestedPlan(plan);
+  return invalidInput(`Unknown command '${command}'`, "Run house-plan --help");
+};
+
+const execute = async (): Promise<Exit> => {
+  const command = process.argv[2];
+  if (!command || command === "--help" || command === "help") return jsonHelp();
+  if (command === "commands")
+    return succeeded("commands", { commands: commandNames });
+  if (command === "schema") return succeeded("schema", operationJsonSchema());
+  if (command === "init") return initializePlan();
+  return executePlanCommand(command);
+};
+
+const writeExit = (result: Exit): void => {
+  const output = `${JSON.stringify(result.value)}\n`;
+  (result.stream === "stdout" ? process.stdout : process.stderr).write(output);
+  process.exitCode = result.status;
+};
+
+Effect.runPromise(Effect.tryPromise({ try: execute, catch: (cause) => cause }))
+  .then(writeExit)
+  .catch((cause) =>
+    writeExit(
+      failed(
+        failure(
+          "internal",
+          String(cause),
+          "Run with valid JSON and arguments.",
+        ),
+        1,
+      ),
+    ),
+  );
