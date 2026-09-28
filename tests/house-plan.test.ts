@@ -397,6 +397,18 @@ describe("HousePlanEngine", () => {
         kind: "opening.upsert",
         level: "ground",
         entity: {
+          name: "west-entry",
+          wall: "south",
+          type: "door",
+          variant: "single",
+          offset: 100,
+          width: 80,
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
           name: "connecting-door",
           wall: "divider",
           type: "door",
@@ -441,6 +453,290 @@ describe("HousePlanEngine", () => {
         },
       ])._tag,
     ).toBe("Left");
+  });
+
+  it("rejects a furniture footprint that intersects wall thickness", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 250,
+          width: 90,
+        },
+      },
+    ]);
+    const result = apply(plan, 1, [
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "wardrobe",
+          label: "Wardrobe",
+          center: { x: 15, y: 200 },
+          width: 20,
+          depth: 80,
+          rotation: 0,
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "OBJECT_WALL_COLLISION",
+            location: { object: "wardrobe", wall: "shell-west" },
+          }),
+        ]),
+      },
+    });
+    expect(plan.revision).toBe(1);
+  });
+
+  it("uses the rotated footprint and permits exact edge contact", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 250,
+          width: 90,
+        },
+      },
+    ]);
+    const touching = apply(plan, 1, [
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "sideboard",
+          label: "Sideboard",
+          center: { x: 25, y: 200 },
+          width: 30,
+          depth: 60,
+          rotation: 0,
+        },
+      },
+    ]);
+    expect("ok" in touching).toBe(false);
+    const rotated = apply(plan, 1, [
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "rotated",
+          label: "Rotated",
+          center: { x: 50, y: 200 },
+          width: 20,
+          depth: 100,
+          rotation: 90,
+        },
+      },
+    ]);
+    expect(rotated).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "OBJECT_WALL_COLLISION" }),
+        ]),
+      },
+    });
+  });
+
+  it("checks directional clearance after rotating a box", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "rotated-cabinet",
+          label: "Cabinet",
+          center: { x: 60, y: 200 },
+          width: 100,
+          depth: 20,
+          rotation: 90,
+          clearance: { front: 60, back: 0, left: 0, right: 0 },
+        },
+      },
+    ]);
+    expect(validate(plan)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "CLEARANCE_WALL_COLLISION",
+          location: { object: "rotated-cabinet", wall: "shell-west" },
+        }),
+      ]),
+    );
+  });
+
+  it("rejects rooms with local doors but no path to an exterior entry", () => {
+    const result = apply(emptyPlan(), 0, [
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 900, 400),
+      ...[300, 600].map((x) => ({
+        kind: "wall.upsert" as const,
+        level: "ground",
+        entity: {
+          name: `divider-${x}`,
+          a: { x, y: 0 },
+          b: { x, y: 400 },
+          thickness: 12,
+          kind: "interior" as const,
+        },
+      })),
+      ...[150, 450, 750].map((x) => ({
+        kind: "room.upsert" as const,
+        level: "ground",
+        entity: { name: `room-${x}`, type: "living", seed: { x, y: 200 } },
+      })),
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 80,
+          width: 80,
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "isolated-connection",
+          wall: "divider-600",
+          type: "door",
+          variant: "single",
+          offset: 150,
+          width: 80,
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "window-only",
+          wall: "shell-north",
+          type: "window",
+          variant: "fixed",
+          offset: 80,
+          width: 100,
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "ROOM_NOT_REACHABLE_FROM_ENTRY",
+            location: { room: "room-450" },
+          }),
+          expect.objectContaining({
+            code: "ROOM_NOT_REACHABLE_FROM_ENTRY",
+            location: { room: "room-750" },
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("does not use an exterior window as a room entrance", () => {
+    const result = apply(emptyPlan(), 0, [
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "divider",
+          a: { x: 300, y: 0 },
+          b: { x: 300, y: 400 },
+          thickness: 12,
+          kind: "interior",
+        },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "entry-room", type: "hall", seed: { x: 150, y: 200 } },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: {
+          name: "window-room",
+          type: "bedroom",
+          seed: { x: 450, y: 200 },
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 100,
+          width: 80,
+        },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "window",
+          wall: "shell-north",
+          type: "window",
+          variant: "fixed",
+          offset: 100,
+          width: 100,
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "ROOM_WITHOUT_DOOR",
+            location: { room: "window-room" },
+          }),
+          expect.objectContaining({
+            code: "ROOM_NOT_REACHABLE_FROM_ENTRY",
+            location: { room: "window-room" },
+          }),
+        ]),
+      },
+    });
   });
 
   it("rejects a room seed placed on a shared derived face boundary", () => {

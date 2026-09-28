@@ -250,23 +250,6 @@
     }
   },
   {
-    "kind": "wall.upsert",
-    "level": "ground",
-    "entity": {
-      "name": "porch-front-stub",
-      "a": {
-        "x": 600,
-        "y": 0
-      },
-      "b": {
-        "x": 700,
-        "y": 0
-      },
-      "thickness": 12,
-      "kind": "interior"
-    }
-  },
-  {
     "kind": "room.upsert",
     "level": "ground",
     "entity": {
@@ -288,6 +271,24 @@
         "x": 250,
         "y": 1050
       }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "bath-kitchen-hall",
+      "type": "circulation",
+      "seed": { "x": 250, "y": 900 }
+    }
+  },
+  {
+    "kind": "room.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "north-landing",
+      "type": "circulation",
+      "seed": { "x": 470, "y": 950 }
     }
   },
   {
@@ -398,10 +399,10 @@
       "wall": "stair-porch",
       "type": "door",
       "variant": "single",
-      "offset": 200,
+      "offset": 60,
       "width": 80,
       "hinge": "right",
-      "swing": "in"
+      "swing": "out"
     }
   },
   {
@@ -409,10 +410,10 @@
     "level": "ground",
     "entity": {
       "name": "front-entry",
-      "wall": "porch-front-stub",
+      "wall": "south",
       "type": "door",
       "variant": "single",
-      "offset": 10,
+      "offset": 175,
       "width": 80,
       "hinge": "left",
       "swing": "in"
@@ -426,7 +427,7 @@
       "wall": "west",
       "type": "window",
       "variant": "fixed",
-      "offset": 200,
+      "offset": 900,
       "width": 100
     }
   },
@@ -438,7 +439,7 @@
       "wall": "north",
       "type": "window",
       "variant": "fixed",
-      "offset": 400,
+      "offset": 180,
       "width": 140
     }
   },
@@ -462,7 +463,7 @@
       "wall": "west",
       "type": "window",
       "variant": "fixed",
-      "offset": 870,
+      "offset": 200,
       "width": 140
     }
   },
@@ -486,7 +487,7 @@
       "wall": "east",
       "type": "window",
       "variant": "fixed",
-      "offset": 130,
+      "offset": 930,
       "width": 100
     }
   },
@@ -498,8 +499,8 @@
       "wall": "south",
       "type": "window",
       "variant": "fixed",
-      "offset": 740,
-      "width": 140
+      "offset": 35,
+      "width": 100
     }
   },
   {
@@ -539,8 +540,8 @@
       "name": "dining-table",
       "label": "Table",
       "center": {
-        "x": 380,
-        "y": 700
+        "x": 495,
+        "y": 690
       },
       "width": 120,
       "depth": 80,
@@ -717,17 +718,23 @@
     "kind": "wall.upsert",
     "level": "ground",
     "entity": {
-      "name": "porch-east-stub",
-      "a": {
-        "x": 900,
-        "y": 200
-      },
-      "b": {
-        "x": 900,
-        "y": 0
-      },
+      "name": "kitchen-corridor-east",
+      "a": { "x": 350, "y": 800 },
+      "b": { "x": 350, "y": 1000 },
       "thickness": 12,
-      "kind": "exterior"
+      "kind": "interior"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "kitchen-corridor-door",
+      "wall": "kitchen-corridor-east",
+      "type": "door",
+      "variant": "sliding",
+      "offset": 50,
+      "width": 80
     }
   },
   {
@@ -809,6 +816,20 @@
       "offset": 80,
       "width": 90,
       "hinge": "left",
+      "swing": "in"
+    }
+  },
+  {
+    "kind": "opening.upsert",
+    "level": "ground",
+    "entity": {
+      "name": "kitchen-to-dining-door",
+      "wall": "dining-north",
+      "type": "door",
+      "variant": "single",
+      "offset": 80,
+      "width": 90,
+      "hinge": "right",
       "swing": "in"
     }
   },

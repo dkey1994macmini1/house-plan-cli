@@ -86,6 +86,7 @@ Plan obsługuje wiele niezależnych kondygnacji 2D. Każda kondygnacja zawiera o
 - A small bespoke orthogonal geometry kernel owns segment intersection, containment, collision and face extraction. General polygon boolean geometry is out of scope.
 - A room has a name, semantic type and seed point. It resolves to exactly one derived rectangular zoning face; its polygon, dimensions, area and perimeter are derived data.
 - An incomplete *interior* wall can delimit two open-plan zones: for face derivation alone, a free endpoint extends on its own axis to the nearest perpendicular authored wall. This virtual extension is neither persisted nor rendered as a physical wall; the uncovered boundary remains a pass-through. A room seed still must lie strictly inside one zone. This is not general non-rectangular face extraction or silent repair of authored geometry.
+- A room is reachable only if its derived face belongs to a walkable path from an exterior entry door (`type: door` hosted on `kind: exterior` with one adjacent face and outside on the other side), across hosted interior doors or uncovered portions of shared physical boundaries. Windows never form circulation edges; an opening elsewhere on the same long wall does not count as this room's door. Unlabelled derived faces may carry a path between named rooms. The typed diagnostics are `ROOM_WITHOUT_DOOR` when a face has no physical exit and `ROOM_NOT_REACHABLE_FROM_ENTRY` when it has no path to an exterior door; an isolated room may receive both. This MVP checks reachability within each storey; matched stair runs are validated separately and do not infer cross-storey reachability to a ground-floor entry.
 - Dangling endpoints can remain in the authored wall graph (for intentional passages). Topology reports them; missing or ambiguous room faces remain validation errors.
 
 ### Openings and objects
@@ -94,7 +95,7 @@ Plan obsługuje wiele niezależnych kondygnacji 2D. Każda kondygnacja zawiera o
 - Doors support `single`, `double` and `sliding`; hinged doors add side and in/out swing direction. Windows support `fixed`, `casement`, `tilt-turn` and `sliding`.
 - Openings that exceed host wall boundaries or overlap are hard errors. No clamping is performed.
 - Generic `object` is an orthogonal rectangle with label, center, width, depth and rotation limited to 0/90/180/270 degrees. It renders as a box with an X and label.
-- Explicit directional clearance rectangles are optional. Collision with walls, objects, other clearances or door swings is detected using defined severity.
+- Explicit directional clearance rectangles are optional and rotate with their object. Any non-zero overlap of a box with a wall's occupied thickness (including its end caps) is a hard `OBJECT_WALL_COLLISION`; exact zero-area contact at the wall boundary is allowed. `CLEARANCE_WALL_COLLISION` is a warning; object/object, other-clearance and door-swing collisions retain their own defined severities.
 - Stairs are a specialised rectangle with `direction: up | down`; they have no step count or 3D geometry.
 - A stair run has a single identity shared by exactly two storeys. Lower occurrence is `up`, upper occurrence `down`; their footprints must align within the plan tolerance. A void on the upper level must contain the stair footprint.
 

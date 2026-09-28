@@ -23,6 +23,19 @@ export class WallSegment {
   get lengthCm(): number {
     return wallLength(this.value);
   }
+  get occupiedBounds(): Bounds {
+    const { a, b, thickness } = this.value;
+    const half = thickness / 2;
+    return {
+      x: Math.min(a.x, b.x) - half,
+      y: Math.min(a.y, b.y) - half,
+      width: Math.abs(a.x - b.x) + thickness,
+      height: Math.abs(a.y - b.y) + thickness,
+    };
+  }
+  intersects(bounds: Bounds): boolean {
+    return boundsOverlap(this.occupiedBounds, bounds);
+  }
   get isOrthogonal(): boolean {
     return (
       this.value.a.x === this.value.b.x || this.value.a.y === this.value.b.y
@@ -108,10 +121,11 @@ export class PlanObject {
   constructor(readonly value: ObjectBox) {}
 
   get bounds(): Bounds {
+    const rotated = this.value.rotation === 90 || this.value.rotation === 270;
     return boundsFromCenter(
       this.value.center,
-      this.value.width,
-      this.value.depth,
+      rotated ? this.value.depth : this.value.width,
+      rotated ? this.value.width : this.value.depth,
     );
   }
   get hasValidBounds(): boolean {
@@ -126,12 +140,23 @@ export class PlanObject {
     const clearance = this.value.clearance;
     if (!clearance) return undefined;
     const { front, back, left, right } = clearance;
-    return {
-      x: this.bounds.x - left,
-      y: this.bounds.y - back,
-      width: this.bounds.width + left + right,
-      height: this.bounds.height + front + back,
+    const localX = (right - left) / 2;
+    const localY = (front - back) / 2;
+    const width = this.value.width + left + right;
+    const height = this.value.depth + front + back;
+    const { x, y } = this.value.center;
+    const centers: Record<ObjectBox["rotation"], Point> = {
+      0: { x: x + localX, y: y + localY },
+      90: { x: x - localY, y: y + localX },
+      180: { x: x - localX, y: y - localY },
+      270: { x: x + localY, y: y - localX },
     };
+    const rotated = this.value.rotation === 90 || this.value.rotation === 270;
+    return boundsFromCenter(
+      centers[this.value.rotation],
+      rotated ? height : width,
+      rotated ? width : height,
+    );
   }
   get hasValidClearance(): boolean {
     const clearance = this.value.clearance;

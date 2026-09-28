@@ -118,6 +118,30 @@ describe("house-plan executable", () => {
     expect(operations).toContainEqual(
       expect.objectContaining({
         kind: "opening.upsert",
+        entity: expect.objectContaining({ name: "front-entry", wall: "south" }),
+      }),
+    );
+    expect(operations).toContainEqual(
+      expect.objectContaining({
+        kind: "opening.upsert",
+        entity: expect.objectContaining({
+          name: "stairs-porch-door",
+          offset: 60,
+        }),
+      }),
+    );
+    expect(operations).toContainEqual(
+      expect.objectContaining({
+        kind: "opening.upsert",
+        entity: expect.objectContaining({
+          name: "kitchen-to-dining-door",
+          wall: "dining-north",
+        }),
+      }),
+    );
+    expect(operations).toContainEqual(
+      expect.objectContaining({
+        kind: "opening.upsert",
         entity: expect.objectContaining({
           name: "stair-dining-door",
           wall: "stair-north",
@@ -214,8 +238,89 @@ describe("house-plan executable", () => {
       ok: false,
       error: { type: "revision_conflict" },
     });
-    expect(JSON.parse(await readFile(planPath, "utf8"))).toMatchObject({
-      revision: 1,
+    const beforeRejectedEdit = await readFile(planPath, "utf8");
+    const invalidFurniture = join(directory, "invalid-furniture.json");
+    await writeFile(
+      invalidFurniture,
+      JSON.stringify([
+        {
+          kind: "object.upsert",
+          level: "ground",
+          entity: {
+            name: "dining-table",
+            label: "Table",
+            center: { x: 350, y: 690 },
+            width: 120,
+            depth: 80,
+            rotation: 0,
+          },
+        },
+      ]),
+      "utf8",
+    );
+    const rejected = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      invalidFurniture,
+      "--expected-revision",
+      "1",
+    );
+    expect(rejected).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(rejected.stderr)).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "OBJECT_WALL_COLLISION",
+            location: { object: "dining-table", wall: "bedroom1-east" },
+          }),
+        ]),
+      },
     });
+    expect(await readFile(planPath, "utf8")).toBe(beforeRejectedEdit);
+
+    const invalidAccess = join(directory, "invalid-access.json");
+    await writeFile(
+      invalidAccess,
+      JSON.stringify([
+        {
+          kind: "opening.upsert",
+          level: "ground",
+          entity: {
+            name: "bedroom-1-door",
+            wall: "stair-north",
+            type: "door",
+            variant: "sliding",
+            offset: 175,
+            width: 70,
+          },
+        },
+      ]),
+      "utf8",
+    );
+    const disconnected = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      invalidAccess,
+      "--expected-revision",
+      "1",
+    );
+    expect(disconnected).toMatchObject({ status: 2, stdout: "" });
+    expect(JSON.parse(disconnected.stderr)).toMatchObject({
+      ok: false,
+      error: {
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "ROOM_NOT_REACHABLE_FROM_ENTRY",
+            location: { room: "bedroom-1" },
+          }),
+        ]),
+      },
+    });
+    expect(await readFile(planPath, "utf8")).toBe(beforeRejectedEdit);
   });
 });

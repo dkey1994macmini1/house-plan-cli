@@ -1,3 +1,4 @@
+import { StoreyCirculation } from "./circulation.js";
 import { PlanObject, StairOccurrence, WallSegment } from "./domain-objects.js";
 import { boundsOverlap, isGridCentimetre } from "./geometry.js";
 import type { Diagnostic, HousePlan, Named, Storey } from "./model.js";
@@ -124,82 +125,35 @@ const validateRoomSeeds = (storey: Storey): readonly Diagnostic[] => {
   });
 };
 
-const sharedBoundaryLength = (
-  host: Storey["walls"][number],
-  bounds: { x: number; y: number; width: number; height: number },
-): number => {
-  const horizontal = host.a.y === host.b.y;
-  const vertical = host.a.x === host.b.x;
-  if (horizontal) {
-    if (host.a.y !== bounds.y && host.a.y !== bounds.y + bounds.height)
-      return 0;
-    const left = Math.max(bounds.x, Math.min(host.a.x, host.b.x));
-    const right = Math.min(
-      bounds.x + bounds.width,
-      Math.max(host.a.x, host.b.x),
-    );
-    return Math.max(0, right - left);
-  }
-  if (vertical) {
-    if (host.a.x !== bounds.x && host.a.x !== bounds.x + bounds.width) return 0;
-    const bottom = Math.max(bounds.y, Math.min(host.a.y, host.b.y));
-    const top = Math.min(
-      bounds.y + bounds.height,
-      Math.max(host.a.y, host.b.y),
-    );
-    return Math.max(0, top - bottom);
-  }
-  return 0;
-};
-
-const wallBordersFace = (
-  wall: Storey["walls"][number],
-  bounds: { x: number; y: number; width: number; height: number },
-): boolean => {
-  const horizontal = wall.a.y === wall.b.y;
-  const vertical = wall.a.x === wall.b.x;
-  return (
-    (horizontal &&
-      (wall.a.y === bounds.y || wall.a.y === bounds.y + bounds.height) &&
-      Math.max(wall.a.x, wall.b.x) > bounds.x &&
-      Math.min(wall.a.x, wall.b.x) < bounds.x + bounds.width) ||
-    (vertical &&
-      (wall.a.x === bounds.x || wall.a.x === bounds.x + bounds.width) &&
-      Math.max(wall.a.y, wall.b.y) > bounds.y &&
-      Math.min(wall.a.y, wall.b.y) < bounds.y + bounds.height)
-  );
-};
-
-const faceHasPassThrough = (
-  face: { bounds: { x: number; y: number; width: number; height: number } },
-  storey: Storey,
-): boolean => {
-  const wallLength = storey.walls
-    .filter((wall) => sharedBoundaryLength(wall, face.bounds) > 0)
-    .reduce((sum, wall) => sum + sharedBoundaryLength(wall, face.bounds), 0);
-  const perimeter = 2 * (face.bounds.width + face.bounds.height);
-  return perimeter - wallLength > 0;
-};
-
 const validateRoomAccess = (storey: Storey): readonly Diagnostic[] => {
-  const topology = new DerivedTopology(storey.walls);
+  const circulation = new StoreyCirculation(storey);
+  const unreachable = new Set(
+    circulation.unreachableRooms().map((room) => room.id),
+  );
   return storey.rooms.flatMap((room) => {
-    const face = topology.faceContaining(room.seed);
+    const face = circulation.faceForRoom(room);
     if (!face) return [];
-    const passThrough = faceHasPassThrough(face, storey);
-    const hasDoor = storey.openings.some((opening) => {
-      const host =
-        opening.type === "door" ? named(storey.walls, opening.wall) : undefined;
-      return host !== undefined && wallBordersFace(host, face.bounds);
-    });
-    if (hasDoor || passThrough) return [];
     return [
-      error(
-        "ROOM_WITHOUT_DOOR",
-        `Room '${room.name}' has no door or pass-through on its derived boundary`,
-        { room: room.name },
-        "Add a hosted door opening on a wall bordering this room, or leave one boundary edge open (open-plan).",
-      ),
+      ...(!circulation.hasExit(face)
+        ? [
+            error(
+              "ROOM_WITHOUT_DOOR",
+              `Room '${room.name}' has no physical door or pass-through`,
+              { room: room.name },
+              "Add a door on its actual shared boundary or a physical passage to an adjacent zone.",
+            ),
+          ]
+        : []),
+      ...(unreachable.has(room.id)
+        ? [
+            error(
+              "ROOM_NOT_REACHABLE_FROM_ENTRY",
+              `Room '${room.name}' has no walkable path to an exterior entry door`,
+              { room: room.name },
+              "Connect this room through doors or open passages to a door on the exterior wall.",
+            ),
+          ]
+        : []),
     ];
   });
 };
@@ -320,7 +274,32 @@ const validateObjects = (storey: Storey): readonly Diagnostic[] =>
             : []),
         ];
       });
-    return [...ownDiagnostics, ...collisionDiagnostics];
+    const wallDiagnostics = storey.walls.flatMap((wall) => {
+      const host = new WallSegment(wall);
+      return [
+        ...(host.intersects(subject.bounds)
+          ? [
+              error(
+                "OBJECT_WALL_COLLISION",
+                `Object '${object.name}' intersects wall '${wall.name}'`,
+                { object: object.name, wall: wall.name },
+                "Move or resize the object so its footprint clears the wall thickness.",
+              ),
+            ]
+          : []),
+        ...(subject.clearanceBounds && host.intersects(subject.clearanceBounds)
+          ? [
+              {
+                code: "CLEARANCE_WALL_COLLISION",
+                severity: "warning" as const,
+                message: `Clearance of '${object.name}' overlaps wall '${wall.name}'`,
+                location: { object: object.name, wall: wall.name },
+              },
+            ]
+          : []),
+      ];
+    });
+    return [...ownDiagnostics, ...wallDiagnostics, ...collisionDiagnostics];
   });
 
 const validateDoorSwingCollisions = (storey: Storey): readonly Diagnostic[] =>
