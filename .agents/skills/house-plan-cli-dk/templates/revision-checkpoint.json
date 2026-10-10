@@ -1,12 +1,22 @@
 {
-  "source": {"path": "", "revision": null, "sha256": ""},
+  "source": { "path": "", "revision": null, "sha256": "" },
   "request_delta": "",
   "mode": "local-revision",
   "preserve": [],
   "allowed_program_losses": [],
-  "affected_entities": {"walls": [], "openings": [], "rooms": [], "objects": []},
+  "affected_entities": {
+    "walls": [],
+    "openings": [],
+    "rooms": [],
+    "objects": []
+  },
   "acceptance": [],
-  "limits": {"area_m2": null, "body_cm": 80, "grid_cm": 5, "route_limits_from_brief": []},
+  "limits": {
+    "area_m2": null,
+    "body_cm": 80,
+    "grid_cm": 5,
+    "route_limits_from_brief": []
+  },
   "last_verified_gate": "discovery",
   "operations_files": [],
   "evidence_packet": "",
