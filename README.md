@@ -26,6 +26,8 @@ node dist/bin.js render --plan my-house.json --all-levels --out-dir previews --s
 
 Default rendering remains technical SVG. PNG is a rasterization of the same SVG, not a second geometry engine. Format is selected explicitly; `--width` is PNG-only (default2400, range1–8192), with derived height and total-pixel memory guards. Success envelopes include the format and PNG pixel dimensions; all-level exports write a manifest. The source plan is unchanged.
 
+Render output safety: an export refuses to write over the source plan (or any of its symlink/hardlink aliases) and refuses to replace an existing output file or republish a non-empty out-dir unless `--overwrite` is passed. All-level filenames are slugified from level names and can never escape `--out-dir`; the manifest maps filenames back to the real level names.
+
 Presentation labels count each shared face once, mark model/wall-axis areas rather than legal usable area, and move oversized furniture descriptions into an O-number key. Check the exported image visually before sharing. This does not certify building-code compliance, daylight or real furniture ergonomics.
 
 Rasterization uses @resvg/resvg-js2.6.2 (MPL-2.0) offline. Bundled DejaVu Sans regular/bold font files and their redistribution licence live in `assets/fonts/`; no macOS-specific fonts or Python runtime are needed. Cabinet-front sketches remain separate illustrations, not floor-plan features inferred from prose.

@@ -1,7 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { Diagnostic, HousePlan } from "../plan/model.js";
 import { validate } from "../plan/validation.js";
+import {
+  guardedWriteFile,
+  safeLevelSlug,
+  stagePublishAll,
+} from "./artifact-fs.js";
 import type { RasterizationConfigError } from "./raster/resvg-adapter.js";
 import { renderPng } from "./raster/resvg-adapter.js";
 import type { RenderSettings } from "./render-options.js";
@@ -73,11 +77,19 @@ const rasterize = async (
   return image;
 };
 
-const writeArtifact = async (
+/**
+ * Renders ONE level's bytes. All writes go through the artifact safety
+ * adapter: the plan source (and any other protected input) can never be
+ * overwritten by its own export, and replacing an existing artifact needs
+ * an explicit overwrite decision (handoff §4.1).
+ */
+const renderArtifact = async (
   plan: HousePlan,
   storey: NonNullable<ReturnType<typeof findStorey>>,
   path: string,
   settings: RenderSettings,
+  protectedInputs: readonly string[],
+  overwrite: boolean,
 ): Promise<RenderedLevel> => {
   const levelName =
     plan.levels.find((candidate) => candidate.id === storey.levelId)?.name ??
@@ -87,8 +99,10 @@ const writeArtifact = async (
       renderSvg(plan, storey, settings.style),
       settings,
     );
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, image.bytes);
+    await guardedWriteFile(path, image.bytes, {
+      protect: protectedInputs,
+      overwrite,
+    });
     return {
       level: levelName,
       path,
@@ -97,8 +111,10 @@ const writeArtifact = async (
       height: image.height,
     };
   }
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, renderSvg(plan, storey, settings.style), "utf8");
+  await guardedWriteFile(path, renderSvg(plan, storey, settings.style), {
+    protect: protectedInputs,
+    overwrite,
+  });
   return { level: levelName, path, format: "svg" };
 };
 
@@ -108,11 +124,20 @@ export const renderLevelToFile = async (
   path: string,
   allowInvalid = false,
   settings: RenderSettings = technicalDefaults,
+  protectedInputs: readonly string[] = [],
+  overwrite = false,
 ): Promise<RenderedLevel> => {
   assertNoDiagnostics(plan, allowInvalid);
   const storey = findStorey(plan, levelName);
   if (!storey) throw new UnknownLevelError(levelName);
-  return writeArtifact(plan, storey, path, settings);
+  return renderArtifact(
+    plan,
+    storey,
+    path,
+    settings,
+    protectedInputs,
+    overwrite,
+  );
 };
 
 const createManifest = (
@@ -124,36 +149,66 @@ const createManifest = (
   levels: files,
 });
 
+/**
+ * All-levels export. Filenames derive from `safeLevelSlug` — the level
+ * display name is a domain name, not a filename, and cannot traverse the
+ * out-dir (handoff §4.2); the manifest keeps the real level names. Every
+ * artifact filename is derived and validated BEFORE any filesystem
+ * mutation; the bundle stages into a fresh subdirectory and publishes
+ * only after every artifact (manifest included) succeeded (§4.3 minimum).
+ */
 export const renderAllLevelsToDirectory = async (
   plan: HousePlan,
   directory: string,
   allowInvalid = false,
   settings: RenderSettings = technicalDefaults,
+  overwrite = false,
 ): Promise<readonly RenderedLevel[]> => {
   assertNoDiagnostics(plan, allowInvalid);
-  await mkdir(directory, { recursive: true });
   const extension = settings.format === "png" ? "png" : "svg";
+  // Preflight: derive every artifact filename first. A hostile level name
+  // refuses here, before the out-dir is even created.
+  const taken = new Set<string>();
+  const stagedPlan = plan.levels
+    .toSorted((left, right) => left.order - right.order)
+    .map((level) => {
+      const storey = plan.storeys.find(
+        (candidate) => candidate.levelId === level.id,
+      );
+      if (!storey) throw new UnknownLevelError(level.name);
+      const filename = `${safeLevelSlug(level.name, taken)}.${extension}`;
+      taken.add(filename);
+      return { level, storey, filename };
+    });
   const files: RenderedLevel[] = [];
-  for (const level of plan.levels.toSorted(
-    (left, right) => left.order - right.order,
-  )) {
-    const storey = plan.storeys.find(
-      (candidate) => candidate.levelId === level.id,
-    );
-    if (!storey) throw new UnknownLevelError(level.name);
-    files.push(
-      await writeArtifact(
-        plan,
-        storey,
-        join(directory, `${level.name}.${extension}`),
-        settings,
-      ),
-    );
-  }
-  await writeFile(
-    join(directory, "manifest.json"),
-    `${JSON.stringify(createManifest(plan, files), null, 2)}\n`,
-    "utf8",
+  await stagePublishAll(
+    directory,
+    async (stagingDirectory) => {
+      const stagedNames: string[] = [];
+      for (const { storey, filename } of stagedPlan) {
+        files.push(
+          // Staging is a fresh private directory: overwrite is safe there
+          // and no input can alias a staged path.
+          await renderArtifact(
+            plan,
+            storey,
+            join(stagingDirectory, filename),
+            settings,
+            [],
+            true,
+          ),
+        );
+        stagedNames.push(filename);
+      }
+      await guardedWriteFile(
+        join(stagingDirectory, "manifest.json"),
+        `${JSON.stringify(createManifest(plan, files), null, 2)}\n`,
+        { protect: [], overwrite: true },
+      );
+      stagedNames.push("manifest.json");
+      return stagedNames;
+    },
+    { overwrite },
   );
   return files;
 };

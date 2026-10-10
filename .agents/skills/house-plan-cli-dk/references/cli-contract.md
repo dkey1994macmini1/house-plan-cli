@@ -8,8 +8,8 @@
 | `validate --plan FILE` | plan path | `plan.validation`, `data.valid`, optional `meta.diagnostics` |
 | `report --plan FILE` | plan path | `plan.report`, `data.plan` (resolved), `data.valid`, optional `meta.diagnostics` |
 | `survey --plan FILE` | plan path | `plan.survey`, `data.revision`, `data.valid`, `data.levels` (compact spatial reading). Does not write the plan. |
-| `render --plan FILE --level LEVEL --out FILE [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid]` | level name + output path | `plan.rendered`, `data.level`, `data.path`, `data.format`; PNG also `data.width`, `data.height` |
-| `render --plan FILE --all-levels --out-dir DIR [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files`; manifest records revision and per-file format/PNG dimensions |
+| `render --plan FILE --level LEVEL --out FILE [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid] [--overwrite]` | level name + output path | `plan.rendered`, `data.level`, `data.path`, `data.format`; PNG also `data.width`, `data.height` |
+| `render --plan FILE --all-levels --out-dir DIR [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid] [--overwrite]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files`; manifest records revision and per-file format/PNG dimensions |
 | `commands` | none | `commands`, supported grammar and exit codes |
 | `schema` | none | `schema`, Draft-07 JSON Schema for the **operation array** in `data` |
 
@@ -31,6 +31,8 @@ A failure writes **no stdout**, one JSON envelope on stderr: `{ "ok": false, "sc
 - 3/4 are not emitted by this local-first CLI. Do not retry an unchanged deterministic failure with backoff.
 
 `init` writes to the specified file; pick a new path and do not use it to overwrite a plan. Confirm path and existing state before any filesystem write. `apply` is transactional with one revision increment per accepted batch. Upserts replace entities of the same name within a storey; they are not an append operation.
+
+`render` artifact safety: an export never overwrites a protected input (the plan — matched by realpath AND dev/ino identity, so symlink and hardlink aliases are caught) and refuses to replace any existing output without `--overwrite` (exit 2, `invalid_input`). All-levels filenames derive from slugified level names (`../x` refuse; `a\\b` → `a--b`; collisions get `-2` suffixes); the manifest maps filenames back to the real level names. The bundle publishes only after every artifact rendered; a non-empty out-dir refuses without `--overwrite`.
 </errors>
 
 <version_drift>
