@@ -16,6 +16,22 @@ node dist/bin.js render --plan my-house.json --level ground --out my-house.svg
 
 `survey` is the compact reading: rooms, unique face area, doors, passages, windows, and objects. `report` prints the full resolved geometry. Send `my-house.svg` as the floor-plan image. Open it in any modern browser first if you want to inspect it.
 
+## Presentation images and offline PNG
+
+```bash
+node dist/bin.js render --plan my-house.json --level ground --style presentation --out my-house-presentation.svg
+node dist/bin.js render --plan my-house.json --level ground --style presentation --format png --width 2400 --out my-house.png
+node dist/bin.js render --plan my-house.json --all-levels --out-dir previews --style presentation --format png
+```
+
+Default rendering remains technical SVG. PNG is a rasterization of the same SVG, not a second geometry engine. Format is selected explicitly; `--width` is PNG-only (default2400, range1–8192), with derived height and total-pixel memory guards. Success envelopes include the format and PNG pixel dimensions; all-level exports write a manifest. The source plan is unchanged.
+
+Render output safety: an export refuses to write over the source plan (or any of its symlink/hardlink aliases) and refuses to replace an existing output file or republish a non-empty out-dir unless `--overwrite` is passed. All-level filenames are slugified from level names and can never escape `--out-dir`; the manifest maps filenames back to the real level names.
+
+Presentation labels count each shared face once, mark model/wall-axis areas rather than legal usable area, and move oversized furniture descriptions into an O-number key. Check the exported image visually before sharing. This does not certify building-code compliance, daylight or real furniture ergonomics.
+
+Rasterization uses @resvg/resvg-js2.6.2 (MPL-2.0) offline. Bundled DejaVu Sans regular/bold font files and their redistribution licence live in `assets/fonts/`; no macOS-specific fonts or Python runtime are needed. Cabinet-front sketches remain separate illustrations, not floor-plan features inferred from prose.
+
 ## Modify a plan
 
 Create an operations JSON document and apply it with the current revision from the previous result. Supported operations are:

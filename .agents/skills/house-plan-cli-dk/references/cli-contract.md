@@ -8,8 +8,8 @@
 | `validate --plan FILE` | plan path | `plan.validation`, `data.valid`, optional `meta.diagnostics` |
 | `report --plan FILE` | plan path | `plan.report`, `data.plan` (resolved), `data.valid`, optional `meta.diagnostics` |
 | `survey --plan FILE` | plan path | `plan.survey`, `data.revision`, `data.valid`, `data.levels` (compact spatial reading). Does not write the plan. |
-| `render --plan FILE --level LEVEL --out FILE [--allow-invalid]` | level name + SVG path | `plan.rendered`, rendered file metadata |
-| `render --plan FILE --all-levels --out-dir DIR [--allow-invalid]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files` |
+| `render --plan FILE --level LEVEL --out FILE [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]` | level name + output path | `plan.rendered`, `data.level`, `data.path`, `data.format`; PNG also `data.width`, `data.height` |
+| `render --plan FILE --all-levels --out-dir DIR [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files`; manifest records revision and per-file format/PNG dimensions |
 | `commands` | none | `commands`, supported grammar and exit codes |
 | `schema` | none | `schema`, Draft-07 JSON Schema for the **operation array** in `data` |
 
@@ -25,7 +25,9 @@ A failure writes **no stdout**, one JSON envelope on stderr: `{ "ok": false, "sc
 - Exit 1: `internal`, often filesystem/render failure; investigate and verify disk state before retry.
 - 3/4 are not emitted by this local-first CLI. Do not retry an unchanged deterministic failure with backoff.
 
-`init` writes to the specified file; pick a new path and do not use it to overwrite a plan. Confirm path and existing state before any filesystem write. `apply` is transactional with one revision increment per accepted batch. Upserts replace entities of the same name within a storey; they are not an append operation.
+`init` refuses to overwrite an existing plan: it exits 2 with `invalid_input` and a hint to use `apply` instead. `apply` is transactional with one revision increment per accepted batch. Upserts replace entities of the same name within a storey; they are not an append operation.
+
+`render` artifact safety: an export never overwrites a protected input (the plan — matched by realpath AND dev/ino identity, so symlink and hardlink aliases are caught) and refuses to replace any existing output without `--overwrite` (exit 2, `invalid_input`). All-levels filenames derive from slugified level names (`../x` refuses; `a\b` → `a--b`; collisions get `-2` suffixes); the manifest maps filenames back to the real level names. The bundle publishes only after every artifact rendered; a non-empty out-dir refuses without `--overwrite`.
 </errors>
 
 <version_drift>
