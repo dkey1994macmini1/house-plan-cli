@@ -8,12 +8,17 @@
 | `validate --plan FILE` | plan path | `plan.validation`, `data.valid`, optional `meta.diagnostics` |
 | `report --plan FILE` | plan path | `plan.report`, `data.plan` (resolved), `data.valid`, optional `meta.diagnostics` |
 | `survey --plan FILE` | plan path | `plan.survey`, `data.revision`, `data.valid`, `data.levels` (compact spatial reading). Does not write the plan. |
-| `render --plan FILE --level LEVEL --out FILE [--allow-invalid]` | level name + SVG path | `plan.rendered`, rendered file metadata |
-| `render --plan FILE --all-levels --out-dir DIR [--allow-invalid]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files` |
+| `render --plan FILE --level LEVEL --out FILE [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid]` | level name + output path | `plan.rendered`, `data.level`, `data.path`, `data.format`; PNG also `data.width`, `data.height` |
+| `render --plan FILE --all-levels --out-dir DIR [--style STYLE] [--format FORMAT] [--width N] [--allow-invalid]` | directory | `plan.rendered_all_levels`, `data.directory`, `data.files`; manifest records revision and per-file format/PNG dimensions |
 | `commands` | none | `commands`, supported grammar and exit codes |
 | `schema` | none | `schema`, Draft-07 JSON Schema for the **operation array** in `data` |
 
 Every successful application envelope has `ok:true`, `type`, `schemaVersion:1`, `data`, `meta`. The saved plan itself has `revision`, `levels`, `storeys`. `apply --dry-run` includes a proposed plan whose revision is advanced, but `meta.revision` is the **unchanged on-disk revision**; never use the proposed revision as the next write precondition. Read the actual plan or the committed apply result. `report` derives room faces, dimensions and bounds without modifying the file. `survey` is the reading to use when describing the plan: per level it gives footprint `bounds`, `faceAreaCm2` (each derived face once), `roomClaimAreaCm2` (sum of room claims, which double-counts a shared face), rooms, connections, exterior doors, windows, and objects. Field meanings are in `references/survey.md`. Use `report` only when the next edit needs authored coordinates.
+
+## Presentation and PNG
+Defaults remain `--style technical --format svg`. Format is explicit, not inferred from the extension. Presentation uses the same geometry, warmer palette, filled objects, one area per shared face, heading/revision, scale and notes. Areas are wall-axis/model areas, not legal usable area.
+
+PNG rasterizes that exact SVG offline using @resvg/resvg-js and bundled licensed DejaVu fonts. No Python or network service. `--width` is PNG-only, integer1–8192, default2400; derived height is bounded to16384 pixels, with a total-pixel guard. Invalid configurations return invalid_input/exit2 before rasterization. Small fixtures with oversized descriptions use O-number keys and a legend. Validate and inspect a fresh PNG before delivery; see `workflows/present-plan.md`.
 </contract>
 
 <errors>

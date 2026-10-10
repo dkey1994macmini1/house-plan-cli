@@ -1,0 +1,13 @@
+# Presentation export — executed verification
+
+Implementation: shared domain geometry and SVG layers, presentation palette/layout, offline @resvg/resvg-js2.6.2 adapter, bundled licensed DejaVu fonts. Source plan is never changed by rendering. No Python.
+
+Baseline:53 tests passed. Initial implementation added22 tests. Parent reproduced and fixed readability failures with fail-first regression tests for overlapping scale/disclaimer and overflowing furniture labels. Parent spec review also found invalid drafts lacked a visible badge; a fail-first test now covers it. Full final gate: `pnpm check` passed78 tests in7 files; lint and typecheck green. `pnpm build` passed. `git diff --check` passed. No commits/pushes.
+
+Real built CLI exported the preserved private rev18 plan and a separate new layout candidate as2400-pixel PNGs. Image files open and Polish glyphs work; visual gate confirmed no critical composition defects after readability corrections. Exact bytes/SHA of the source plan were checked against the recorded baseline and remained unchanged. Private target paths and layout decisions are kept in the private construction folder, not here.
+
+Operating skill: owner is this repository's `.agents/skills/house-plan-cli-dk`; the user-level skill resolves to it via a symlink. Added `workflows/present-plan.md`, routing/principles, updated CLI contract and README. Default technical SVG remains compatible; new style/format/width flags work for single/all-level exports and preserve JSON envelopes.
+
+Independent code-quality review completed (deleg_89a7d62e): APPROVED, no critical/high findings in the inspected rendering/rasterization boundaries. Parent cross-checked the bundled-font loading, pre-raster bounds, exact SVG input, and label fit against domain bounds in code. Retained limits: arbitrary-angle furniture uses upright labels fitted to its axis-aligned bounds (not guaranteed inside the rotated polygon); all-level export is not atomic; validation is repeated per render. None certifies the house layout. Earlier private-layout reviews covered only selected routes/dimensions; the broader wiki/web functional audit remains separate.
+
+Boundary limitations: exported wall-axis areas are not legal usable area; per-variant metadata is distinct from transaction revision; cabinet elevations and terrace geometry are not invented from prose; rendering is not functional, legal, daylight, engineering or budget approval. Validation errors are visible as NIEPOPRAWNY SZKIC when explicitly rendering an invalid draft. PNG only reads bundled fonts; there is no rendering network service.
