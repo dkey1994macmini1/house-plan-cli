@@ -32,6 +32,8 @@ import {
   operationKinds,
   validateOpeningVariants,
 } from "./modules/plan/schema.js";
+import { ArtifactSafetyError } from "./modules/render/artifact-fs.js";
+import { parseRenderSettings } from "./modules/render/render-options.js";
 import {
   PlanValidationError,
   renderAllLevelsToDirectory,
@@ -304,6 +306,10 @@ const renderHandler = ({
   allLevels,
   outDir,
   allowInvalid,
+  style,
+  format,
+  width,
+  overwrite,
 }: {
   readonly plan: string;
   readonly level: Option.Option<string>;
@@ -311,8 +317,40 @@ const renderHandler = ({
   readonly allLevels: boolean;
   readonly outDir: Option.Option<string>;
   readonly allowInvalid: boolean;
+  readonly style: string;
+  readonly format: string;
+  readonly width: Option.Option<number>;
+  readonly overwrite: boolean;
 }) =>
   Effect.gen(function* () {
+    const parseFailure = parseRenderSettings({
+      ...(style === "technical" ? {} : { style }),
+      ...(format === "svg" ? {} : { format }),
+      ...(Option.isSome(width) ? { width: width.value } : {}),
+    });
+    if (!parseFailure.ok) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: parseFailure.rejection.message,
+          hint: parseFailure.rejection.hint,
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    // Artifact safety: the source plan (and any other inputs of this command)
+    // can never be overwritten by an export — direct, symlink or hardlink
+    // alias alike (handoff §4.1).
+    const protectedInputs = [planPath];
+    const safetyError = (cause: ArtifactSafetyError): CommandError =>
+      new CommandError({
+        type: "invalid_input",
+        message: cause.rejection.message,
+        hint: cause.rejection.hint,
+        exit: 2,
+        cause,
+      });
     const plan = yield* loadPlanFromDisk(planPath);
     const diagnostics = allowInvalid ? validate(plan) : undefined;
     if (allLevels) {
@@ -328,24 +366,33 @@ const renderHandler = ({
         return;
       }
       const files = yield* Effect.tryPromise({
-        try: () => renderAllLevelsToDirectory(plan, outDir.value, allowInvalid),
+        try: () =>
+          renderAllLevelsToDirectory(
+            plan,
+            outDir.value,
+            allowInvalid,
+            parseFailure.settings,
+            overwrite,
+          ),
         catch: (cause) =>
-          cause instanceof PlanValidationError
-            ? new CommandError({
-                type: "invalid_input",
-                message: "Plan has validation errors",
-                hint: "Fix diagnostics and retry.",
-                diagnostics: cause.diagnostics,
-                exit: 2,
-                cause,
-              })
-            : new CommandError({
-                type: "internal",
-                message: String(cause),
-                hint: "Check render output path and permissions.",
-                exit: 1,
-                cause,
-              }),
+          cause instanceof ArtifactSafetyError
+            ? safetyError(cause)
+            : cause instanceof PlanValidationError
+              ? new CommandError({
+                  type: "invalid_input",
+                  message: "Plan has validation errors",
+                  hint: "Fix diagnostics and retry.",
+                  diagnostics: cause.diagnostics,
+                  exit: 2,
+                  cause,
+                })
+              : new CommandError({
+                  type: "internal",
+                  message: String(cause),
+                  hint: "Check render output path and permissions.",
+                  exit: 1,
+                  cause,
+                }),
       });
       yield* writeSuccess(
         "plan.rendered_all_levels",
@@ -367,32 +414,51 @@ const renderHandler = ({
       return;
     }
     const rendered = yield* Effect.tryPromise({
-      try: () => renderLevelToFile(plan, level.value, out.value, allowInvalid),
+      try: () =>
+        renderLevelToFile(
+          plan,
+          level.value,
+          out.value,
+          allowInvalid,
+          parseFailure.settings,
+          protectedInputs,
+          overwrite,
+        ),
       catch: (cause) =>
-        cause instanceof PlanValidationError
-          ? new CommandError({
-              type: "invalid_input",
-              message: "Plan has validation errors",
-              hint: "Fix diagnostics and retry.",
-              diagnostics: cause.diagnostics,
-              exit: 2,
-              cause,
-            })
-          : cause instanceof UnknownLevelError
+        cause instanceof ArtifactSafetyError
+          ? safetyError(cause)
+          : cause instanceof PlanValidationError
             ? new CommandError({
-                type: "not_found",
-                message: cause.message,
-                hint: "Create the level or fix the argument.",
-                exit: 5,
+                type: "invalid_input",
+                message: "Plan has validation errors",
+                hint: "Fix diagnostics and retry.",
+                diagnostics: cause.diagnostics,
+                exit: 2,
                 cause,
               })
-            : new CommandError({
-                type: "internal",
-                message: String(cause),
-                hint: "Check render output path and permissions.",
-                exit: 1,
-                cause,
-              }),
+            : cause instanceof UnknownLevelError
+              ? new CommandError({
+                  type: "not_found",
+                  message: cause.message,
+                  hint: "Create the level or fix the argument.",
+                  exit: 5,
+                  cause,
+                })
+              : (cause as { kind?: string }).kind === "render-configuration"
+                ? new CommandError({
+                    type: "invalid_input",
+                    message: String((cause as Error).message),
+                    hint: "Adjust --format/--width so the derived raster fits memory bounds.",
+                    exit: 2,
+                    cause,
+                  })
+                : new CommandError({
+                    type: "internal",
+                    message: String(cause),
+                    hint: "Check render output path and permissions.",
+                    exit: 1,
+                    cause,
+                  }),
     });
     yield* writeSuccess("plan.rendered", rendered, plan.revision, diagnostics);
   });
@@ -407,8 +473,8 @@ const commandsHandler = () =>
       "init --out FILE",
       "apply --plan FILE --input FILE --expected-revision N [--dry-run]",
       "validate --plan FILE",
-      "render --plan FILE --level LEVEL --out FILE [--allow-invalid]",
-      "render --plan FILE --all-levels --out-dir DIR [--allow-invalid]",
+      "render --plan FILE --level LEVEL --out FILE [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]",
+      "render --plan FILE --all-levels --out-dir DIR [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]",
       "report --plan FILE",
       "survey --plan FILE",
       "commands",
@@ -474,11 +540,15 @@ const renderCommand = Command.make(
     allowInvalid: Options.boolean("allow-invalid").pipe(
       Options.withDefault(false),
     ),
+    overwrite: Options.boolean("overwrite").pipe(Options.withDefault(false)),
+    style: Options.text("style").pipe(Options.withDefault("technical")),
+    format: Options.text("format").pipe(Options.withDefault("svg")),
+    width: Options.integer("width").pipe(Options.optional),
   },
   renderHandler,
 ).pipe(
   Command.withDescription(
-    "Render a single level to SVG (--level + --out) or all levels to a directory (--all-levels + --out-dir).",
+    "Render a single level (--level + --out) or all levels to a directory (--all-levels + --out-dir). Style: --style technical|presentation (default technical). Format: --format svg|png (default svg); PNG accepts --width in pixels (default 2400, max 8192). Existing outputs need --overwrite; the source plan and inputs are never overwritten.",
   ),
 );
 
