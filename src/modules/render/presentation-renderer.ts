@@ -1,4 +1,4 @@
-import { PlanObject } from "../plan/domain-objects.js";
+import { PlanObject, SiteFeature } from "../plan/domain-objects.js";
 import { boundsOverlap } from "../plan/geometry.js";
 import type {
   Bounds,
@@ -23,12 +23,15 @@ import {
   estimatedTextWidth,
   labelObstacles,
 } from "./label-placement.js";
+import { renderObjectSymbol } from "./objects-layer.js";
 import {
   escapeXml,
   type GraphicsPalette,
   renderOpening,
+  renderSiteElementsLayer,
   renderWall,
   svgY,
+  terraceGridDefinition,
 } from "./plan-graphics.js";
 import { paperRect, unionBounds } from "./presentation-bounds.js";
 import {
@@ -36,6 +39,7 @@ import {
   type PresentationPalette,
   presentationPalette,
 } from "./presentation-palette.js";
+import type { AreaMode } from "./render-options.js";
 
 /** Deterministic layout metrics: every band is derived from the plan, never from plan names. */
 const paperMargin = 80;
@@ -48,8 +52,8 @@ const notesPadding = 30;
 const areaLabelFontSize = 20;
 const furnitureLabelFontSize = 14;
 
-const areaCm2ToM2 = (areaCm2: number): string =>
-  `${(areaCm2 / 10000).toFixed(1).replace(".", ",")} m²`;
+const areaCm2ToM2 = (areaCm2: number, areaMode: AreaMode = "axis"): string =>
+  `${(areaCm2 / 10000).toFixed(areaMode === "net" ? 2 : 1).replace(".", ",")} m²`;
 
 /** Paper-space (SVG user space, Y mirrored) face polygon. */
 const polygonPoints = (vertices: readonly { x: number; y: number }[]): string =>
@@ -103,15 +107,19 @@ const groupRoomsByFace = (
     }))
     .toSorted((left, right) => left.key.localeCompare(right.key));
 
-const faceLabelLines = (group: FaceLabelGroup): readonly string[] => {
+const faceLabelLines = (
+  group: FaceLabelGroup,
+  areaMode: AreaMode,
+): readonly string[] => {
   const names = group.rooms.map((room) => room.name).join(" · ");
-  const area = group.rooms[0]?.areaCm2;
+  const firstRoom = group.rooms[0];
+  const area = areaMode === "net" ? firstRoom?.netAreaCm2 : firstRoom?.areaCm2;
   const maxWidth = Math.max(60, Math.min(group.face.bounds.width - 40, 520));
   return [
     ...wrapText(names, areaLabelFontSize, maxWidth)
       .filter(Boolean)
       .map(escapeXml),
-    ...(area !== undefined ? [escapeXml(areaCm2ToM2(area))] : []),
+    ...(area !== undefined ? [escapeXml(areaCm2ToM2(area, areaMode))] : []),
   ];
 };
 
@@ -120,11 +128,12 @@ const renderFaceLabels = (
   groups: readonly FaceLabelGroup[],
   storey: Storey,
   palette: PresentationPalette,
+  areaMode: AreaMode,
 ): string => {
   const obstacles = labelObstacles(storey);
   return groups
     .flatMap((group) => {
-      const lines = faceLabelLines(group);
+      const lines = faceLabelLines(group, areaMode);
       if (lines.length === 0) return [];
       const blockWidth = Math.max(
         ...lines.map((line) =>
@@ -167,6 +176,17 @@ const renderFurnitureLayer = (
   const notes: string[] = [];
   const svg = storey.objects
     .map((object, index) => {
+      const symbol = renderObjectSymbol(
+        object,
+        palette.furniture.outline,
+        "#ffffff",
+      );
+      const shapeSvg =
+        symbol ??
+        `<rect class="object-fill" x="${object.center.x - object.width / 2}" y="${svgY(object.center.y + object.depth / 2)}" width="${object.width}" height="${object.depth}" fill="${palette.furniture.fill}" stroke="${palette.furniture.outline}" stroke-width="2"/>`;
+      if (object.kind && object.label.trim() === "") {
+        return `<g transform="rotate(${-object.rotation} ${object.center.x} ${svgY(object.center.y)})">${shapeSvg}</g>`;
+      }
       const bounds = new PlanObject(object).bounds;
       const lines = wrapText(
         object.label,
@@ -189,7 +209,7 @@ const renderFurnitureLayer = (
             `<text x="${object.center.x}" y="${svgY(object.center.y) + (index - (all.length - 1) / 2) * furnitureLabelFontSize * 1.25}" font-size="${furnitureLabelFontSize}" text-anchor="middle" dominant-baseline="middle" fill="${palette.furniture.label}">${escapeXml(line)}</text>`,
         )
         .join("");
-      return `<g transform="rotate(${-object.rotation} ${object.center.x} ${svgY(object.center.y)})"><rect class="object-fill" x="${object.center.x - object.width / 2}" y="${svgY(object.center.y + object.depth / 2)}" width="${object.width}" height="${object.depth}" fill="${palette.furniture.fill}" stroke="${palette.furniture.outline}" stroke-width="2"/></g><g class="${fits ? "furniture-label" : "furniture-key"}">${labels}</g>`;
+      return `<g transform="rotate(${-object.rotation} ${object.center.x} ${svgY(object.center.y)})">${shapeSvg}</g><g class="${fits ? "furniture-label" : "furniture-key"}">${labels}</g>`;
     })
     .join("");
   return { svg, notes };
@@ -248,12 +268,16 @@ const renderHeader = (
   revision: number,
   contentPaperBounds: Bounds,
   palette: PresentationPalette,
+  areaMode: AreaMode,
 ): string => {
   const top = contentPaperBounds.y - headerGap - headerHeight;
   const left = contentPaperBounds.x;
   const available = contentPaperBounds.width - 160;
   const titleLines = wrapText(title, 32, available);
-  const subtitle = `Rewizja ${revision} · powierzchnie po osiach ścian, nie powierzchnia użytkowa`;
+  const subtitle =
+    areaMode === "net"
+      ? `Rewizja ${revision} · powierzchnia użytkowa netto (w świetle ścian)`
+      : `Rewizja ${revision} · powierzchnie po osiach ścian, nie powierzchnia użytkowa`;
   const renderLines = (
     lines: readonly string[],
     firstY: number,
@@ -337,6 +361,7 @@ const renderDimensionLayer = (
 export const renderPresentationSvg = (
   plan: HousePlan,
   storey: Storey,
+  areaMode: AreaMode = "axis",
 ): string => {
   const resolved = resolvePlan(plan).storeys.find(
     (candidate) => candidate.id === storey.id,
@@ -355,6 +380,10 @@ export const renderPresentationSvg = (
         height: Math.abs(wall.a.y - wall.b.y) + wall.thickness,
       },
     ]),
+    ...(storey.sites ?? []).flatMap((site) => {
+      const bounds = new SiteFeature(site).bounds;
+      return bounds ? [bounds] : [];
+    }),
     ...storey.stairs.map((stair) => stair.bounds),
     ...storey.voids.map((voidItem) => voidItem.bounds),
     ...storey.objects.map((object) => new PlanObject(object).bounds),
@@ -386,6 +415,8 @@ export const renderPresentationSvg = (
     plan.revision,
     contentPaper,
     palette,
+    areaMode,
   );
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${contentPaper.x - paperMargin} ${contentPaper.y - headerGap - headerHeight} ${width} ${height}" font-family="DejaVu Sans, sans-serif"><defs>${voidHatchDefinition}</defs><rect x="${contentPaper.x - paperMargin}" y="${contentPaper.y - headerGap - headerHeight}" width="${width}" height="${height}" fill="${palette.background}"/><g id="floors">${renderFloorsLayer(topology.faces, resolved.rooms, palette)}</g><g id="walls">${storey.walls.map((wall) => renderWall(wall, palette.wall)).join("")}</g><g id="openings">${storey.openings.map((opening) => renderOpening(opening, storey, presentationGraphics)).join("")}</g><g id="objects">${furnitureLayer.svg}</g><g id="room-labels">${renderFaceLabels(labelGroups, storey, palette)}</g><g id="stairs">${renderStairsLayer(storey.stairs)}</g><g id="voids">${renderVoidsLayer(storey.voids, storey.stairs)}</g><g id="dimensions">${dimensionLayer.svg}</g>${header}${notesPanel.svg}</svg>`;
+  const siteSvg = renderSiteElementsLayer(storey.sites);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${contentPaper.x - paperMargin} ${contentPaper.y - headerGap - headerHeight} ${width} ${height}" font-family="DejaVu Sans, sans-serif"><defs>${voidHatchDefinition}${siteSvg ? terraceGridDefinition : ""}</defs><rect x="${contentPaper.x - paperMargin}" y="${contentPaper.y - headerGap - headerHeight}" width="${width}" height="${height}" fill="${palette.background}"/>${siteSvg ? `<g id="sites">${siteSvg}</g>` : ""}<g id="floors">${renderFloorsLayer(topology.faces, resolved.rooms, palette)}</g><g id="walls">${storey.walls.map((wall) => renderWall(wall, palette.wall)).join("")}</g><g id="openings">${storey.openings.map((opening) => renderOpening(opening, storey, presentationGraphics)).join("")}</g><g id="objects">${furnitureLayer.svg}</g><g id="room-labels">${renderFaceLabels(labelGroups, storey, palette, areaMode)}</g><g id="stairs">${renderStairsLayer(storey.stairs)}</g><g id="voids">${renderVoidsLayer(storey.voids, storey.stairs)}</g><g id="dimensions">${dimensionLayer.svg}</g>${header}${notesPanel.svg}</svg>`;
 };

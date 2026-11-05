@@ -7,6 +7,7 @@ import type {
 import {
   boundsFromPoints,
   DerivedTopology,
+  netFacePolygon,
   polygonAreaCm2,
 } from "./topology.js";
 
@@ -24,17 +25,20 @@ const resolveStorey = (storey: Storey): ResolvedStorey => {
   const topology = new DerivedTopology(storey.walls);
   const rooms = storey.rooms.flatMap((room) => {
     const face = topology.faceContaining(room.seed);
-    return face
-      ? [
-          {
-            ...room,
-            bounds: face.bounds,
-            areaCm2: polygonAreaCm2(face.vertices),
-            perimeterCm: polygonPerimeterCm(face.vertices),
-            face: face.vertices,
-          },
-        ]
-      : [];
+    if (!face) return [];
+    const net = netFacePolygon(face, storey.walls);
+    return [
+      {
+        ...room,
+        bounds: face.bounds,
+        areaCm2: polygonAreaCm2(face.vertices),
+        netBounds: net.bounds,
+        netAreaCm2: polygonAreaCm2(net.vertices),
+        perimeterCm: polygonPerimeterCm(face.vertices),
+        face: face.vertices,
+        netFace: net.vertices,
+      },
+    ];
   });
   const bounds = boundsFromPoints(
     topology.faces.flatMap((face) => face.vertices),

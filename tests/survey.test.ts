@@ -426,4 +426,116 @@ describe("plan survey", () => {
       ],
     });
   });
+
+  it("splits an open-plan zone with a virtual boundary, connects both rooms via a passage, and computes net areas without virtual wall thickness", () => {
+    const plan = applied([
+      level,
+      ...shell(600, 400),
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "open-divider",
+          a: { x: 300, y: 0 },
+          b: { x: 300, y: 400 },
+          kind: "virtual",
+        },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 150, y: 200 } },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "kitchen", type: "kitchen", seed: { x: 450, y: 200 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "south",
+          type: "door",
+          variant: "single",
+          offset: 100,
+          width: 90,
+          hinge: "left",
+          swing: "in",
+        },
+      },
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "island",
+          label: "Island",
+          kind: "kitchen_island",
+          center: { x: 300, y: 200 },
+          width: 90,
+          depth: 180,
+          rotation: 0,
+        },
+      },
+      {
+        kind: "site.upsert",
+        level: "ground",
+        entity: {
+          name: "east-terrace",
+          variant: "terrace",
+          bounds: { x: 600, y: 0, width: 250, height: 400 },
+        },
+      },
+    ]);
+
+    const ground = surveyPlan(plan).levels[0];
+    // Shell is 600x400 with 20cm exterior walls (10cm inward on N/S/W/E).
+    // Each half is 300x400 on axes (120000 cm2), and (300 - 10) x (400 - 20) = 290 x 380 = 110200 cm2 net!
+    expect(ground).toMatchObject({
+      faceAreaCm2: 240000,
+      netFaceAreaCm2: 220400,
+      rooms: [
+        {
+          name: "kitchen",
+          widthCm: 300,
+          depthCm: 400,
+          areaCm2: 120000,
+          netWidthCm: 290,
+          netDepthCm: 380,
+          netAreaCm2: 110200,
+        },
+        {
+          name: "living",
+          widthCm: 300,
+          depthCm: 400,
+          areaCm2: 120000,
+          netWidthCm: 290,
+          netDepthCm: 380,
+          netAreaCm2: 110200,
+        },
+      ],
+      connections: [
+        {
+          kind: "door",
+          opening: "entry",
+          widthCm: 90,
+          sides: [["living"], ["outside"]],
+        },
+        {
+          kind: "passage",
+          widthCm: 400,
+          sides: [["kitchen"], ["living"]],
+        },
+      ],
+      sites: [
+        {
+          name: "east-terrace",
+          variant: "terrace",
+          bounds: { x: 600, y: 0, width: 250, height: 400 },
+          areaCm2: 100000,
+        },
+      ],
+    });
+  });
 });

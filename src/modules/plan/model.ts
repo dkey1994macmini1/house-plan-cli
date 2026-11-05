@@ -19,12 +19,14 @@ export type Diagnostic = Readonly<{
   suggestion?: string;
 }>;
 
+export type WallKind = "exterior" | "interior" | "virtual";
+
 export type Wall = Named &
   Readonly<{
     a: Point;
     b: Point;
     thickness: number;
-    kind: "exterior" | "interior";
+    kind: WallKind;
   }>;
 export type Room = Named & Readonly<{ type: string; seed: Point }>;
 export type Opening = Named &
@@ -40,6 +42,7 @@ export type Opening = Named &
 export type ObjectBox = Named &
   Readonly<{
     label: string;
+    kind?: string;
     center: Point;
     width: number;
     depth: number;
@@ -50,6 +53,22 @@ export type ObjectBox = Named &
       right: number;
       back: number;
     }>;
+  }>;
+export type SiteVariant =
+  | "terrace"
+  | "porch"
+  | "driveway"
+  | "eaves"
+  | "column"
+  | "entry_arrow";
+export type SiteDirection = "north" | "south" | "east" | "west";
+export type SiteElement = Named &
+  Readonly<{
+    variant: SiteVariant;
+    bounds?: Bounds;
+    points?: readonly Point[];
+    direction?: SiteDirection;
+    label?: string;
   }>;
 export type Stair = Named &
   Readonly<{ run: string; direction: "up" | "down"; bounds: Bounds }>;
@@ -69,6 +88,7 @@ export type Storey = Readonly<{
   voids: readonly Void[];
   annotations: readonly Annotation[];
   dimensions: readonly Dimension[];
+  sites?: readonly SiteElement[];
 }>;
 export type Level = Named & Readonly<{ elevationCm: number; order: number }>;
 export type HousePlan = Readonly<{
@@ -81,8 +101,11 @@ export type ResolvedRoom = Room &
   Readonly<{
     bounds: Bounds;
     areaCm2: number;
+    netBounds: Bounds;
+    netAreaCm2: number;
     perimeterCm: number;
     face: readonly Point[];
+    netFace: readonly Point[];
   }>;
 export type ResolvedStorey = Omit<Storey, "rooms"> &
   Readonly<{ rooms: readonly ResolvedRoom[]; bounds: Bounds }>;

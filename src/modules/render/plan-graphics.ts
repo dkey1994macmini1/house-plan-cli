@@ -1,9 +1,10 @@
-import { WallSegment } from "../plan/domain-objects.js";
+import { SiteFeature, WallSegment } from "../plan/domain-objects.js";
 import type {
   Bounds,
   Dimension,
   Opening,
   Point,
+  SiteElement,
   Storey,
 } from "../plan/model.js";
 
@@ -37,7 +38,88 @@ export const renderWall = (
   wall: Storey["walls"][number],
   color = "black",
 ): string =>
-  `<line x1="${wall.a.x}" y1="${svgY(wall.a.y)}" x2="${wall.b.x}" y2="${svgY(wall.b.y)}" stroke="${color}" stroke-width="${wall.thickness}"/>`;
+  wall.kind === "virtual"
+    ? `<line class="wall-virtual" x1="${wall.a.x}" y1="${svgY(wall.a.y)}" x2="${wall.b.x}" y2="${svgY(wall.b.y)}" stroke="${color}" stroke-width="2" stroke-dasharray="10 8" stroke-opacity="0.45"/>`
+    : `<line x1="${wall.a.x}" y1="${svgY(wall.a.y)}" x2="${wall.b.x}" y2="${svgY(wall.b.y)}" stroke="${color}" stroke-width="${wall.thickness}" stroke-linecap="square"/>`;
+
+export const terraceGridDefinition =
+  '<pattern id="terrace-grid" width="35" height="35" patternUnits="userSpaceOnUse"><rect width="35" height="35" fill="#f5f3ee"/><path d="M 35 0 L 0 0 0 35" fill="none" stroke="#9a958b" stroke-width="1.5"/></pattern>';
+
+const polygonSvgPoints = (points: readonly Point[]): string =>
+  points.map((point) => `${point.x},${svgY(point.y)}`).join(" ");
+
+const renderEntryArrow = (site: SiteElement, bounds: Bounds): string => {
+  const { x, y, width, height } = bounds;
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  const direction = site.direction ?? "south";
+  const tipAndBase: readonly [Point, Point, Point] =
+    direction === "south"
+      ? [
+          { x: cx, y },
+          { x, y: y + height },
+          { x: x + width, y: y + height },
+        ]
+      : direction === "north"
+        ? [
+            { x: cx, y: y + height },
+            { x, y },
+            { x: x + width, y },
+          ]
+        : direction === "east"
+          ? [
+              { x: x + width, y: cy },
+              { x, y: y + height },
+              { x, y },
+            ]
+          : [
+              { x, y: cy },
+              { x: x + width, y: y + height },
+              { x: x + width, y },
+            ];
+  return `<polygon class="site-entry-arrow" points="${polygonSvgPoints(tipAndBase)}" fill="#5bc0eb" stroke="#2d89b0" stroke-width="2"/>`;
+};
+
+const renderDrivewayCanopy = (
+  bounds: Bounds,
+  points: readonly Point[],
+): string => {
+  const { x, y, width, height } = bounds;
+  if (height > width) {
+    const ridgeY1 = y + height * 0.35;
+    const ridgeY2 = y + height * 0.65;
+    const ridgeX = x + width * 0.28;
+    return `<g class="site-driveway"><polygon points="${polygonSvgPoints(points)}" fill="#fcfbf9" stroke="#6e6a63" stroke-width="2"/><line x1="${x + width}" y1="${svgY(y)}" x2="${ridgeX}" y2="${svgY(ridgeY1)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${x + width}" y1="${svgY(y + height)}" x2="${ridgeX}" y2="${svgY(ridgeY2)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${ridgeX}" y1="${svgY(ridgeY1)}" x2="${ridgeX}" y2="${svgY(ridgeY2)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${x}" y1="${svgY(y)}" x2="${ridgeX}" y2="${svgY(ridgeY1)}" stroke="#6e6a63" stroke-width="1.2" stroke-opacity="0.5"/><line x1="${x}" y1="${svgY(y + height)}" x2="${ridgeX}" y2="${svgY(ridgeY2)}" stroke="#6e6a63" stroke-width="1.2" stroke-opacity="0.5"/></g>`;
+  }
+  const ridgeX1 = x + width * 0.35;
+  const ridgeX2 = x + width * 0.65;
+  const ridgeY = y + height * 0.72;
+  return `<g class="site-driveway"><polygon points="${polygonSvgPoints(points)}" fill="#fcfbf9" stroke="#6e6a63" stroke-width="2"/><line x1="${x}" y1="${svgY(y)}" x2="${ridgeX1}" y2="${svgY(ridgeY)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${x + width}" y1="${svgY(y)}" x2="${ridgeX2}" y2="${svgY(ridgeY)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${ridgeX1}" y1="${svgY(ridgeY)}" x2="${ridgeX2}" y2="${svgY(ridgeY)}" stroke="#6e6a63" stroke-width="1.8"/><line x1="${x}" y1="${svgY(y + height)}" x2="${ridgeX1}" y2="${svgY(ridgeY)}" stroke="#6e6a63" stroke-width="1.2" stroke-opacity="0.5"/><line x1="${x + width}" y1="${svgY(y + height)}" x2="${ridgeX2}" y2="${svgY(ridgeY)}" stroke="#6e6a63" stroke-width="1.2" stroke-opacity="0.5"/></g>`;
+};
+
+export const renderSiteElement = (site: SiteElement): string => {
+  const feature = new SiteFeature(site);
+  const points = feature.polygonPoints;
+  const bounds = feature.bounds;
+  if (points.length < 3 || !bounds) return "";
+  switch (site.variant) {
+    case "terrace":
+    case "porch":
+      return `<polygon class="site-${site.variant}" points="${polygonSvgPoints(points)}" fill="url(#terrace-grid)" stroke="#7a756c" stroke-width="2"/>`;
+    case "driveway":
+      return renderDrivewayCanopy(bounds, points);
+    case "eaves":
+      return `<polygon class="site-eaves" points="${polygonSvgPoints(points)}" fill="none" stroke="#9e9990" stroke-width="2" stroke-dasharray="10 8"/>`;
+    case "column":
+      return `<polygon class="site-column" points="${polygonSvgPoints(points)}" fill="#2b3332" stroke="#2b3332" stroke-width="2"/>`;
+    case "entry_arrow":
+      return renderEntryArrow(site, bounds);
+  }
+};
+
+export const renderSiteElementsLayer = (
+  sites: readonly SiteElement[] | undefined,
+): string => (sites ?? []).map(renderSiteElement).join("");
 
 /** Two panels offset to either side of the wall axis, overlapping in the middle like a slider track. */
 const renderSlidingDoor = (

@@ -1,9 +1,11 @@
 export type RenderStyle = "technical" | "presentation";
 export type RenderFormat = "svg" | "png";
+export type AreaMode = "axis" | "net";
 
 export type RenderSettings = Readonly<{
   style: RenderStyle;
   format: RenderFormat;
+  areaMode?: AreaMode;
   /**
    * PNG pixel width. Present only when explicitly selected for PNG; the
    * adapter's default width applies otherwise.
@@ -26,6 +28,7 @@ export const maxPngPixels = maxPngWidth * maxPngWidth;
 
 const renderStyles: readonly RenderStyle[] = ["technical", "presentation"];
 const renderFormats: readonly RenderFormat[] = ["svg", "png"];
+const areaModes: readonly AreaMode[] = ["axis", "net"];
 
 const styleRejection = (style: string): RenderConfigRejection => ({
   message: `Unknown render style '${style}'`,
@@ -37,10 +40,16 @@ const formatRejection = (format: string): RenderConfigRejection => ({
   hint: "Pass --format svg or --format png.",
 });
 
-/** Parses and validates the style/format/width flags as one render configuration. */
+const areaModeRejection = (areaMode: string): RenderConfigRejection => ({
+  message: `Unknown area mode '${areaMode}'`,
+  hint: "Pass --area-mode axis or --area-mode net.",
+});
+
+/** Parses and validates the style/format/width/area-mode flags as one render configuration. */
 export const parseRenderSettings = (input: {
   readonly style?: string;
   readonly format?: string;
+  readonly areaMode?: string;
   readonly width?: number;
 }):
   | Readonly<{ ok: true; settings: RenderSettings }>
@@ -53,9 +62,14 @@ export const parseRenderSettings = (input: {
     if (!renderFormats.includes(input.format as RenderFormat))
       return { ok: false, rejection: formatRejection(input.format) };
   }
+  if (input.areaMode !== undefined) {
+    if (!areaModes.includes(input.areaMode as AreaMode))
+      return { ok: false, rejection: areaModeRejection(input.areaMode) };
+  }
   const style: RenderStyle =
     input.style === "presentation" ? "presentation" : "technical";
   const format: RenderFormat = input.format === "png" ? "png" : "svg";
+  const areaMode: AreaMode = input.areaMode === "net" ? "net" : "axis";
   if (input.width !== undefined) {
     if (format !== "png")
       return {
@@ -87,6 +101,7 @@ export const parseRenderSettings = (input: {
     settings: {
       style,
       format,
+      ...(input.areaMode !== undefined ? { areaMode } : {}),
       ...(input.width !== undefined ? { width: input.width } : {}),
     },
   };

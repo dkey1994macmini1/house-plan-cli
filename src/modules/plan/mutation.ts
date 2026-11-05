@@ -115,7 +115,10 @@ const upsertResource = (
           walls: replace(
             storey.walls,
             withId(
-              operation.entity,
+              {
+                ...operation.entity,
+                thickness: operation.entity.thickness ?? 0,
+              },
               named(storey.walls, operation.entity.name),
             ),
           ),
@@ -153,6 +156,19 @@ const upsertResource = (
             ),
           ),
         };
+      case "site.upsert": {
+        const currentSites = storey.sites ?? [];
+        return {
+          ...storey,
+          sites: replace(
+            currentSites,
+            withId(
+              operation.entity,
+              named(currentSites, operation.entity.name),
+            ),
+          ),
+        };
+      }
       case "stair.upsert":
         return {
           ...storey,
@@ -231,6 +247,8 @@ const removeResource = (
         return source.openings;
       case "object.remove":
         return source.objects;
+      case "site.remove":
+        return source.sites ?? [];
       case "stair.remove":
         return source.stairs;
       case "void.remove":
@@ -261,6 +279,8 @@ const removeResource = (
         return { ...storey, openings: remove(storey.openings) };
       case "object.remove":
         return { ...storey, objects: remove(storey.objects) };
+      case "site.remove":
+        return { ...storey, sites: remove(storey.sites ?? []) };
       case "stair.remove":
         return { ...storey, stairs: remove(storey.stairs) };
       case "void.remove":

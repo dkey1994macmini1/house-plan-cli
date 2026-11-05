@@ -5,15 +5,16 @@
 |---|---|---|
 | `level.upsert` | `name`, `elevationCm`, `order` (no `level`/`entity`) | Define levels before their storey-local entities in the same batch. |
 | `level.remove` | `name` (no `level`/`entity`) | Removes the level and its storey. |
-| `wall.upsert` | `entity: {name,a:{x,y},b:{x,y},thickness,kind:"exterior"|"interior"}` | Horizontal/vertical centerline; nonzero length. |
+| `wall.upsert` | `entity: {name,a:{x,y},b:{x,y},thickness?,kind:"exterior"|"interior"|"virtual"}` | Horizontal/vertical centerline; nonzero length. `virtual` divides open-plan zones without physical thickness or barrier. |
 | `room.upsert` | `entity: {name,type,seed:{x,y}}` | Seed strictly inside one derived zone; bounds/area are derived, not authored. |
 | `opening.upsert` | `entity: {name,wall,type:"door"|"window",variant,offset,width}` | Offset from host wall's canonical start. Hinged doors also use `hinge` and `swing`; see reference fixture for valid forms. |
-| `object.upsert` | `entity: {name,label,center:{x,y},width,depth,rotation}` | Rotation 0/90/180/270. Optional `clearance:{front,left,right,back}`. |
+| `object.upsert` | `entity: {name,label,kind?,center:{x,y},width,depth,rotation}` | Rotation 0/90/90/270. Optional `kind` (`car`, `bed_double`, `bed_single`, `sofa_corner`, `dining_set`, `desk`, `bathtub`, `shower`, `toilet`, `sink`, `double_sink`, `kitchen_island`, etc.) and `clearance:{front,left,right,back}`. |
+| `site.upsert` | `entity: {name,variant:"terrace"|"porch"|"driveway"|"eaves"|"column"|"entry_arrow",bounds?,points?,direction?,label?}` | Exterior site/landscaping elements rendered outside the interior wall graph. |
 | `stair.upsert` | `entity: {name,run,direction:"up"|"down",bounds:{x,y,width,height}}` | Pair runs across two levels with aligned bounds. |
 | `void.upsert` | `entity: {name,bounds:{x,y,width,height}}` | Upper-level void contains stair footprint. |
 | `annotation.upsert` | `entity: {name,text,at:{x,y}}` | Explicit text at a point. |
 | `dimension.upsert` | `entity: {name,a:{x,y},b:{x,y},offset}` | Explicit dimension line. |
-| `wall.remove` / `room.remove` / `opening.remove` / `object.remove` / `stair.remove` / `void.remove` / `annotation.remove` / `dimension.remove` | `level`, `name` | Removes one named storey-local entity. Dependent entities are not removed automatically. |
+| `wall.remove` / `room.remove` / `opening.remove` / `object.remove` / `site.remove` / `stair.remove` / `void.remove` / `annotation.remove` / `dimension.remove` | `level`, `name` | Removes one named storey-local entity. Dependent entities are not removed automatically. Remove ops carry `name` at the OPERATION level (`{"kind":"room.remove","level":...,"name":...}`), NOT under `entity` — an entity-shaped remove fails the whole batch in schema validation. |
 
 All coordinates and dimensions in public JSON use centimetres (0.1 cm resolution); do not submit millimetres. `bounds` is origin + width/height; objects use center + width/depth instead. Positive X right and Y up. The renderer inverts Y for SVG. Build the complete operations document to satisfy cross-entity constraints, then preview before writing; adding one room to a still-open shell can fail validation. Use explicit `*.remove` operations; do not edit saved plan JSON by hand to bypass validation.
 

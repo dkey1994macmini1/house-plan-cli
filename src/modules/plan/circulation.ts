@@ -179,6 +179,7 @@ export class StoreyCirculation {
 
   private uncoveredLength(edge: SharedEdge): number {
     const intervals = this.storey.walls
+      .filter((wall) => wall.kind !== "virtual")
       .flatMap((wall) => {
         const interval = this.wallInterval(wall, edge);
         return interval && interval.end > interval.start ? [interval] : [];

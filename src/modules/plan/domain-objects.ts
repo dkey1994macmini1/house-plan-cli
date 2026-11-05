@@ -12,6 +12,7 @@ import type {
   ObjectBox,
   Opening,
   Point,
+  SiteElement,
   Stair,
   Wall,
 } from "./model.js";
@@ -20,11 +21,18 @@ import type {
 export class WallSegment {
   constructor(readonly value: Wall) {}
 
+  get isVirtual(): boolean {
+    return this.value.kind === "virtual";
+  }
+  get physicalThicknessCm(): number {
+    return this.isVirtual ? 0 : this.value.thickness;
+  }
   get lengthCm(): number {
     return wallLength(this.value);
   }
   get occupiedBounds(): Bounds {
-    const { a, b, thickness } = this.value;
+    const { a, b } = this.value;
+    const thickness = this.physicalThicknessCm;
     const half = thickness / 2;
     return {
       x: Math.min(a.x, b.x) - half,
@@ -34,7 +42,7 @@ export class WallSegment {
     };
   }
   intersects(bounds: Bounds): boolean {
-    return boundsOverlap(this.occupiedBounds, bounds);
+    return !this.isVirtual && boundsOverlap(this.occupiedBounds, bounds);
   }
   get isOrthogonal(): boolean {
     return (
@@ -44,11 +52,13 @@ export class WallSegment {
   get hasValidMeasurements(): boolean {
     const { a, b, thickness } = this.value;
     return (
-      [a.x, a.y, b.x, b.y, thickness].every(isGridCentimetre) && thickness > 0
+      [a.x, a.y, b.x, b.y, thickness].every(isGridCentimetre) &&
+      (this.isVirtual ? thickness >= 0 : thickness > 0)
     );
   }
   containsOpening(opening: Opening): boolean {
     return (
+      !this.isVirtual &&
       opening.offset > 0 &&
       opening.width > 0 &&
       opening.offset + opening.width < this.lengthCm
@@ -236,5 +246,71 @@ export class RoomSeed {
   constructor(readonly point: Point) {}
   belongsTo(face: Bounds | undefined): boolean {
     return face !== undefined && containsPoint(face, this.point);
+  }
+}
+
+/** Domain object: owns exterior site element geometry (terraces, porches, driveways, eaves, columns, entry arrows). */
+export class SiteFeature {
+  constructor(readonly value: SiteElement) {}
+
+  get polygonPoints(): readonly Point[] {
+    if (this.value.points && this.value.points.length >= 3)
+      return this.value.points;
+    if (!this.value.bounds) return [];
+    const { x, y, width, height } = this.value.bounds;
+    return [
+      { x, y },
+      { x: x + width, y },
+      { x: x + width, y: y + height },
+      { x, y: y + height },
+    ];
+  }
+
+  get bounds(): Bounds | undefined {
+    if (this.value.bounds) return this.value.bounds;
+    const pts = this.polygonPoints;
+    if (pts.length < 3) return undefined;
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  }
+
+  get hasValidGeometry(): boolean {
+    const b = this.bounds;
+    if (!b || b.width <= 0 || b.height <= 0) return false;
+    if (this.value.bounds) {
+      const { x, y, width, height } = this.value.bounds;
+      if (![x, y, width, height].every(isGridCentimetre)) return false;
+    }
+    if (this.value.points) {
+      if (
+        this.value.points.length < 3 ||
+        !this.value.points.every(
+          (p) => isGridCentimetre(p.x) && isGridCentimetre(p.y),
+        )
+      )
+        return false;
+    }
+    return true;
+  }
+
+  get areaCm2(): number {
+    const pts = this.polygonPoints;
+    if (pts.length < 3) return 0;
+    const signed =
+      pts.reduce((sum, point, index) => {
+        const next = pts[(index + 1) % pts.length];
+        return next ? sum + point.x * next.y - next.x * point.y : sum;
+      }, 0) / 2;
+    return Math.abs(signed);
   }
 }

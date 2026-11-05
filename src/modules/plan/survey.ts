@@ -1,5 +1,5 @@
 import { StoreyCirculation } from "./circulation.js";
-import { StairOccurrence } from "./domain-objects.js";
+import { SiteFeature, StairOccurrence } from "./domain-objects.js";
 import type {
   Bounds,
   HousePlan,
@@ -8,6 +8,8 @@ import type {
   Opening,
   Point,
   Room,
+  SiteElement,
+  SiteVariant,
   Stair,
   Storey,
   Void,
@@ -20,6 +22,8 @@ import {
 import {
   boundsFromPoints,
   type DerivedFace,
+  netFacePolygon,
+  netPolygonAreaCm2,
   pointStrictlyInsideFace,
   polygonAreaCm2,
 } from "./topology.js";
@@ -53,6 +57,9 @@ export type SurveyRoom = Readonly<{
   widthCm: number | null;
   depthCm: number | null;
   areaCm2: number | null;
+  netWidthCm: number | null;
+  netDepthCm: number | null;
+  netAreaCm2: number | null;
   exteriorDoors: readonly SurveyOpening[];
   windows: readonly SurveyOpening[];
   objects: readonly SurveyObject[];
@@ -62,8 +69,17 @@ export type SurveyFace = Readonly<{
   id: string;
   bounds: Bounds;
   areaCm2: number;
+  netAreaCm2: number;
   rooms: readonly string[];
   vertices?: readonly Point[];
+}>;
+
+export type SurveySite = Readonly<{
+  name: string;
+  variant: SiteVariant;
+  bounds: Bounds;
+  areaCm2: number;
+  label?: string;
 }>;
 
 export type SurveyStair = Readonly<{
@@ -84,13 +100,16 @@ export type SurveyLevel = Readonly<{
   order: number;
   bounds: Bounds;
   faceAreaCm2: number;
+  netFaceAreaCm2: number;
   roomClaimAreaCm2: number;
+  netRoomClaimAreaCm2: number;
   faces: readonly SurveyFace[];
   rooms: readonly SurveyRoom[];
   connections: readonly SurveyConnection[];
   objectsOutsideRooms: readonly SurveyObject[];
   stairs: readonly SurveyStair[];
   voids: readonly SurveyVoid[];
+  sites?: readonly SurveySite[];
 }>;
 
 export type PlanSurvey = Readonly<{
@@ -142,6 +161,17 @@ const voidReading = (voidItem: Void): SurveyVoid => ({
   name: voidItem.name,
   bounds: voidItem.bounds,
 });
+
+const siteReading = (site: SiteElement): SurveySite => {
+  const feature = new SiteFeature(site);
+  return {
+    name: site.name,
+    variant: site.variant,
+    bounds: feature.bounds ?? emptyBounds,
+    areaCm2: feature.areaCm2,
+    ...(site.label !== undefined ? { label: site.label } : {}),
+  };
+};
 
 const connectionOrder = (connection: SurveyConnection): string =>
   [
@@ -198,6 +228,7 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
     id: faceId(face),
     bounds: face.bounds,
     areaCm2: polygonAreaCm2(face.vertices),
+    netAreaCm2: netPolygonAreaCm2(face, storey.walls),
     rooms: roomsOnFace(index).map((room) => room.name),
     ...(isRectangularFace(face) ? {} : { vertices: face.vertices }),
   }));
@@ -206,6 +237,7 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
     .map((room) => {
       const index = faceIndexAt(room.seed);
       const face = index >= 0 ? faces[index] : undefined;
+      const netFace = face ? netFacePolygon(face, storey.walls) : undefined;
       return {
         name: room.name,
         type: room.type,
@@ -213,6 +245,9 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
         widthCm: face ? face.bounds.width : null,
         depthCm: face ? face.bounds.height : null,
         areaCm2: face ? polygonAreaCm2(face.vertices) : null,
+        netWidthCm: netFace ? netFace.bounds.width : null,
+        netDepthCm: netFace ? netFace.bounds.height : null,
+        netAreaCm2: face ? netPolygonAreaCm2(face, storey.walls) : null,
         exteriorDoors:
           index >= 0
             ? openingsTouching(
@@ -253,6 +288,7 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
       compareText(connectionOrder(left), connectionOrder(right)),
     );
 
+  const sites = (storey.sites ?? []).map(siteReading).toSorted(byName);
   return {
     name: level.name,
     elevationCm: level.elevationCm,
@@ -260,7 +296,15 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
     bounds:
       boundsFromPoints(faces.flatMap((face) => face.vertices)) ?? emptyBounds,
     faceAreaCm2: surveyedFaces.reduce((sum, face) => sum + face.areaCm2, 0),
+    netFaceAreaCm2: surveyedFaces.reduce(
+      (sum, face) => sum + face.netAreaCm2,
+      0,
+    ),
     roomClaimAreaCm2: rooms.reduce((sum, room) => sum + (room.areaCm2 ?? 0), 0),
+    netRoomClaimAreaCm2: rooms.reduce(
+      (sum, room) => sum + (room.netAreaCm2 ?? 0),
+      0,
+    ),
     faces: surveyedFaces,
     rooms,
     connections,
@@ -270,6 +314,7 @@ const surveyStorey = (level: Level, storey: Storey): SurveyLevel => {
       .toSorted(byName),
     stairs: storey.stairs.map(stairReading).toSorted(byName),
     voids: storey.voids.map(voidReading).toSorted(byName),
+    ...(sites.length > 0 ? { sites } : {}),
   };
 };
 
@@ -279,7 +324,9 @@ const emptyLevel = (level: Level): SurveyLevel => ({
   order: level.order,
   bounds: emptyBounds,
   faceAreaCm2: 0,
+  netFaceAreaCm2: 0,
   roomClaimAreaCm2: 0,
+  netRoomClaimAreaCm2: 0,
   faces: [],
   rooms: [],
   connections: [],

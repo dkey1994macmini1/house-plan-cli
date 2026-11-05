@@ -24,6 +24,9 @@ import {
   resolvePlan,
   success,
   surveyPlan,
+  type TransformMode,
+  transformModes,
+  transformPlan,
   validate,
 } from "./modules/plan/index.js";
 import {
@@ -238,7 +241,7 @@ const applyHandler = ({
     if (dryRun) {
       yield* writeSuccess(
         "plan.dry_run",
-        { plan: result },
+        { plan: result, survey: surveyPlan(result) },
         plan.revision,
         diagnostics,
       );
@@ -247,7 +250,117 @@ const applyHandler = ({
     yield* savePlanToDisk(planPath, result);
     yield* writeSuccess(
       "plan.applied",
-      { plan: result },
+      { plan: result, survey: surveyPlan(result) },
+      result.revision,
+      diagnostics,
+    );
+  });
+
+const transformHandler = ({
+  plan: planPath,
+  expectedRevision,
+  mode,
+  dx,
+  dy,
+  out,
+  dryRun,
+}: {
+  readonly plan: string;
+  readonly expectedRevision: Option.Option<number>;
+  readonly mode: string;
+  readonly dx: Option.Option<string>;
+  readonly dy: Option.Option<string>;
+  readonly out: Option.Option<string>;
+  readonly dryRun: boolean;
+}) =>
+  Effect.gen(function* () {
+    if (!transformModes.includes(mode as TransformMode)) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: `Unknown transform mode '${mode}'`,
+          hint: `Pass --mode with one of: ${transformModes.join(", ")}.`,
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    if (Option.isNone(expectedRevision)) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: "transform requires --expected-revision",
+          hint: "Pass the current plan revision.",
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    const parsedDx = Option.isSome(dx) ? Number(dx.value) : 0;
+    const parsedDy = Option.isSome(dy) ? Number(dy.value) : 0;
+    if (!Number.isFinite(parsedDx) || !Number.isFinite(parsedDy)) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: "--dx and --dy must be finite centimetre numbers",
+          hint: "Pass numeric values in centimetres (e.g. --dx 100 --dy -50).",
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    const plan = yield* loadPlanFromDisk(planPath);
+    const result = transformPlan(plan, expectedRevision.value, {
+      mode: mode as TransformMode,
+      dx: parsedDx,
+      dy: parsedDy,
+    });
+    if ("ok" in result) {
+      const exitCode: 1 | 2 | 5 =
+        result.error.type === "revision_conflict"
+          ? 5
+          : result.error.type === "internal"
+            ? 1
+            : 2;
+      yield* fail(
+        new CommandError({
+          type: result.error.type,
+          message: result.error.message,
+          hint: result.error.hint,
+          ...(result.error.diagnostics !== undefined
+            ? { diagnostics: result.error.diagnostics }
+            : {}),
+          exit: exitCode,
+        }),
+      );
+      return;
+    }
+    const diagnostics = validate(result);
+    if (dryRun) {
+      yield* writeSuccess(
+        "plan.dry_run",
+        { plan: result, survey: surveyPlan(result) },
+        plan.revision,
+        diagnostics,
+      );
+      return;
+    }
+    const targetPath = Option.isSome(out) ? out.value : planPath;
+    if (Option.isSome(out) && existsSync(targetPath)) {
+      yield* fail(
+        new CommandError({
+          type: "invalid_input",
+          message: `Refusing to overwrite existing file '${targetPath}'`,
+          hint: "Omit --out to update --plan in place, or pass a new --out path.",
+          exit: 2,
+        }),
+      );
+      return;
+    }
+    yield* savePlanToDisk(targetPath, result);
+    yield* writeSuccess(
+      "plan.transformed",
+      { path: targetPath, plan: result, survey: surveyPlan(result) },
       result.revision,
       diagnostics,
     );
@@ -308,8 +421,10 @@ const renderHandler = ({
   allowInvalid,
   style,
   format,
+  areaMode,
   width,
   overwrite,
+  visualizeOut,
 }: {
   readonly plan: string;
   readonly level: Option.Option<string>;
@@ -319,13 +434,16 @@ const renderHandler = ({
   readonly allowInvalid: boolean;
   readonly style: string;
   readonly format: string;
+  readonly areaMode: string;
   readonly width: Option.Option<number>;
   readonly overwrite: boolean;
+  readonly visualizeOut: Option.Option<string>;
 }) =>
   Effect.gen(function* () {
     const parseFailure = parseRenderSettings({
       ...(style === "technical" ? {} : { style }),
       ...(format === "svg" ? {} : { format }),
+      ...(areaMode === "axis" ? {} : { areaMode }),
       ...(Option.isSome(width) ? { width: width.value } : {}),
     });
     if (!parseFailure.ok) {
@@ -423,6 +541,7 @@ const renderHandler = ({
           parseFailure.settings,
           protectedInputs,
           overwrite,
+          Option.getOrUndefined(visualizeOut),
         ),
       catch: (cause) =>
         cause instanceof ArtifactSafetyError
@@ -472,9 +591,10 @@ const commandsHandler = () =>
     commands: [
       "init --out FILE",
       "apply --plan FILE --input FILE --expected-revision N [--dry-run]",
+      "transform --plan FILE --expected-revision N --mode reflect-x|reflect-y|reflect-diagonal|rotate-90|rotate-180|rotate-270|translate [--dx X] [--dy Y] [--out FILE] [--dry-run]",
       "validate --plan FILE",
-      "render --plan FILE --level LEVEL --out FILE [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]",
-      "render --plan FILE --all-levels --out-dir DIR [--style technical|presentation] [--format svg|png] [--width N] [--allow-invalid] [--overwrite]",
+      "render --plan FILE --level LEVEL --out FILE [--style technical|presentation] [--format svg|png] [--area-mode axis|net] [--width N] [--visualize-out FILE] [--allow-invalid] [--overwrite]",
+      "render --plan FILE --all-levels --out-dir DIR [--style technical|presentation] [--format svg|png] [--area-mode axis|net] [--width N] [--allow-invalid] [--overwrite]",
       "report --plan FILE",
       "survey --plan FILE",
       "commands",
@@ -519,6 +639,24 @@ const applyCommand = Command.make(
   ),
 );
 
+const transformCommand = Command.make(
+  "transform",
+  {
+    plan: Options.file("plan"),
+    expectedRevision: revisionFlag,
+    mode: Options.text("mode"),
+    dx: Options.text("dx").pipe(Options.optional),
+    dy: Options.text("dy").pipe(Options.optional),
+    out: Options.text("out").pipe(Options.optional),
+    dryRun: dryRunFlag,
+  },
+  transformHandler,
+).pipe(
+  Command.withDescription(
+    "Transform all storeys of a plan (reflect-x, reflect-y, reflect-diagonal, rotate-90, rotate-180, rotate-270, translate) while preserving door swings, object rotations and net areas.",
+  ),
+);
+
 const validateCommand = Command.make(
   "validate",
   { plan: Options.file("plan") },
@@ -543,12 +681,14 @@ const renderCommand = Command.make(
     overwrite: Options.boolean("overwrite").pipe(Options.withDefault(false)),
     style: Options.text("style").pipe(Options.withDefault("technical")),
     format: Options.text("format").pipe(Options.withDefault("svg")),
+    areaMode: Options.text("area-mode").pipe(Options.withDefault("axis")),
     width: Options.integer("width").pipe(Options.optional),
+    visualizeOut: Options.text("visualize-out").pipe(Options.optional),
   },
   renderHandler,
 ).pipe(
   Command.withDescription(
-    "Render a single level (--level + --out) or all levels to a directory (--all-levels + --out-dir). Style: --style technical|presentation (default technical). Format: --format svg|png (default svg); PNG accepts --width in pixels (default 2400, max 8192). Existing outputs need --overwrite; the source plan and inputs are never overwritten.",
+    "Render a single level (--level + --out) or all levels to a directory (--all-levels + --out-dir). Style: --style technical|presentation (default technical). Format: --format svg|png (default svg); PNG accepts --width in pixels (default 2400, max 8192). Area mode: --area-mode axis|net (default axis). Optional --visualize-out writes a normalized 0,0 viewBox SVG fragment for inline chat display. Existing outputs need --overwrite; the source plan and inputs are never overwritten.",
   ),
 );
 
@@ -587,6 +727,7 @@ const housePlanCommand = Command.make("house-plan").pipe(
   Command.withSubcommands([
     initCommand,
     applyCommand,
+    transformCommand,
     validateCommand,
     renderCommand,
     reportCommand,

@@ -744,4 +744,272 @@ describe("house-plan executable", () => {
       error: { type: "invalid_input" },
     });
   });
+
+  it("includes the proposed survey reading directly in apply --dry-run without modifying the plan file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "house-plan-dry-survey-"));
+    const planPath = join(directory, "plan.json");
+    const operationsPath = join(directory, "operations.json");
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+    const before = await readFile(planPath, "utf8");
+    await writeFile(
+      operationsPath,
+      JSON.stringify([
+        { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "south",
+            a: { x: 0, y: 0 },
+            b: { x: 400, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "east",
+            a: { x: 400, y: 0 },
+            b: { x: 400, y: 300 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "north",
+            a: { x: 400, y: 300 },
+            b: { x: 0, y: 300 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "west",
+            a: { x: 0, y: 300 },
+            b: { x: 0, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "room.upsert",
+          level: "ground",
+          entity: { name: "living", type: "living", seed: { x: 200, y: 150 } },
+        },
+        {
+          kind: "opening.upsert",
+          level: "ground",
+          entity: {
+            name: "entry",
+            wall: "south",
+            type: "door",
+            variant: "sliding",
+            offset: 150,
+            width: 90,
+          },
+        },
+      ]),
+      "utf8",
+    );
+
+    const dryRun = await runCli(
+      "apply",
+      "--plan",
+      planPath,
+      "--input",
+      operationsPath,
+      "--expected-revision",
+      "0",
+      "--dry-run",
+    );
+
+    expect(dryRun).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(dryRun.stdout)).toMatchObject({
+      ok: true,
+      type: "plan.dry_run",
+      data: {
+        plan: { revision: 1 },
+        survey: {
+          revision: 1,
+          levels: [
+            {
+              name: "ground",
+              faceAreaCm2: 120000,
+              netFaceAreaCm2: 106400,
+              rooms: [
+                {
+                  name: "living",
+                  areaCm2: 120000,
+                  netAreaCm2: 106400,
+                },
+              ],
+            },
+          ],
+        },
+      },
+      meta: { revision: 0 },
+    });
+    expect(await readFile(planPath, "utf8")).toBe(before);
+  });
+
+  it("transforms a plan via CLI and exports a normalized 0,0 viewBox visualize fragment during render", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "house-plan-transform-vis-"),
+    );
+    const planPath = join(directory, "plan.json");
+    const transformedPath = join(directory, "transformed.json");
+    const pngPath = join(directory, "out.png");
+    const visualizePath = join(directory, "test-plan-vis.html");
+    const operationsPath = join(directory, "operations.json");
+    expect((await runCli("init", "--out", planPath)).status).toBe(0);
+    await writeFile(
+      operationsPath,
+      JSON.stringify([
+        { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "south",
+            a: { x: 0, y: 0 },
+            b: { x: 600, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "east",
+            a: { x: 600, y: 0 },
+            b: { x: 600, y: 400 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "north",
+            a: { x: 600, y: 400 },
+            b: { x: 0, y: 400 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "wall.upsert",
+          level: "ground",
+          entity: {
+            name: "west",
+            a: { x: 0, y: 400 },
+            b: { x: 0, y: 0 },
+            thickness: 20,
+            kind: "exterior",
+          },
+        },
+        {
+          kind: "room.upsert",
+          level: "ground",
+          entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
+        },
+        {
+          kind: "opening.upsert",
+          level: "ground",
+          entity: {
+            name: "entry",
+            wall: "south",
+            type: "door",
+            variant: "single",
+            offset: 100,
+            width: 90,
+            hinge: "left",
+            swing: "in",
+          },
+        },
+      ]),
+      "utf8",
+    );
+    expect(
+      (
+        await runCli(
+          "apply",
+          "--plan",
+          planPath,
+          "--input",
+          operationsPath,
+          "--expected-revision",
+          "0",
+        )
+      ).status,
+    ).toBe(0);
+
+    const transformed = await runCli(
+      "transform",
+      "--plan",
+      planPath,
+      "--expected-revision",
+      "1",
+      "--mode",
+      "reflect-diagonal",
+      "--out",
+      transformedPath,
+    );
+    expect(transformed).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(transformed.stdout)).toMatchObject({
+      ok: true,
+      type: "plan.transformed",
+      data: {
+        path: transformedPath,
+        survey: {
+          revision: 2,
+          levels: [{ bounds: { x: 0, y: 0, width: 400, height: 600 } }],
+        },
+      },
+    });
+
+    const rendered = await runCli(
+      "render",
+      "--plan",
+      transformedPath,
+      "--level",
+      "ground",
+      "--out",
+      pngPath,
+      "--style",
+      "presentation",
+      "--area-mode",
+      "net",
+      "--format",
+      "png",
+      "--width",
+      "1200",
+      "--visualize-out",
+      visualizePath,
+    );
+    expect(rendered).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(rendered.stdout)).toMatchObject({
+      ok: true,
+      type: "plan.rendered",
+      data: {
+        path: pngPath,
+        visualizePath,
+      },
+    });
+    const htmlFragment = await readFile(visualizePath, "utf8");
+    expect(htmlFragment).toMatch(
+      /^<svg id="test-plan-vis" width="100%" viewBox="0 0 \d+ \d+"/,
+    );
+    expect(htmlFragment).toContain('transform="translate(');
+  });
 });

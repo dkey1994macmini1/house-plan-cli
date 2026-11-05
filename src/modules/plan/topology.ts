@@ -1,3 +1,4 @@
+import { canonicalCentimetre } from "./geometry.js";
 import type { Bounds, Point, Wall } from "./model.js";
 
 type AxisSegment = Readonly<{ wall: Wall; start: Point; end: Point }>;
@@ -70,20 +71,74 @@ export type DerivedFace = Readonly<{
   vertices: readonly Point[];
 }>;
 
+export const maxJunctionOvershootCm = 25;
+
+export type WallJunctionOvershoot = Readonly<{
+  wall: Wall;
+  tip: Point;
+  junction: Point;
+  overshootCm: number;
+}>;
+
 /**
- * A free end of an interior stub can mark an open-plan room boundary. Extend
- * its axis to the nearest perpendicular authored wall for zoning only; the
- * extension is never persisted, rendered as a wall, or treated as a barrier.
+ * Detects interior wall endpoints that cross a perpendicular wall and poke past
+ * the junction by at most `maxJunctionOvershootCm` (an un-normalized T-junction).
  */
-const zoningExtensions = (walls: readonly Wall[]): readonly Wall[] => {
+export const wallJunctionOvershoots = (
+  walls: readonly Wall[],
+): readonly WallJunctionOvershoot[] => {
   const segments = deriveSplitSegments(walls);
   return walls.flatMap((wall) => {
     if (wall.kind !== "interior" || (!isHorizontal(wall) && !isVertical(wall)))
       return [];
     return endpoints(wall).flatMap((tip, index) => {
+      const touching = segments.filter((segment) =>
+        segmentTouchesPoint(segment, tip),
+      );
+      if (touching.length !== 1) return [];
+      const ownSegment = touching[0];
+      const otherEndpoint = endpoints(wall)[1 - index];
+      if (!ownSegment || !otherEndpoint) return [];
+      const junction = pointsEqual(ownSegment.start, tip)
+        ? ownSegment.end
+        : ownSegment.start;
+      if (pointsEqual(junction, otherEndpoint)) return [];
+      const overshootCm = canonicalCentimetre(
+        Math.abs(tip.x - junction.x) + Math.abs(tip.y - junction.y),
+      );
+      return overshootCm > 0 && overshootCm <= maxJunctionOvershootCm
+        ? [{ wall, tip, junction, overshootCm }]
+        : [];
+    });
+  });
+};
+
+/**
+ * A free end of an interior stub can mark an open-plan room boundary. Extend
+ * its axis to the nearest perpendicular authored wall for zoning only; the
+ * extension is never persisted, rendered as a wall, or treated as a barrier.
+ * Short accidental overshoots past a perpendicular wall junction are excluded.
+ */
+const zoningExtensions = (walls: readonly Wall[]): readonly Wall[] => {
+  const segments = deriveSplitSegments(walls);
+  const overshoots = wallJunctionOvershoots(walls);
+  return walls.flatMap((wall) => {
+    if (
+      (wall.kind !== "interior" && wall.kind !== "virtual") ||
+      (!isHorizontal(wall) && !isVertical(wall))
+    )
+      return [];
+    return endpoints(wall).flatMap((tip, index) => {
       if (
         segments.filter((segment) => segmentTouchesPoint(segment, tip))
           .length !== 1
+      )
+        return [];
+      if (
+        overshoots.some(
+          (overshoot) =>
+            overshoot.wall.id === wall.id && pointsEqual(overshoot.tip, tip),
+        )
       )
         return [];
       const other = endpoints(wall)[1 - index];
@@ -228,7 +283,21 @@ const boundedPolygons = (
 const boundedFaceCandidates = (
   walls: readonly Wall[],
 ): readonly DerivedFace[] => {
-  const segments = deriveSplitSegments([...walls, ...zoningExtensions(walls)]);
+  const overshoots = wallJunctionOvershoots(walls);
+  const segments = deriveSplitSegments([
+    ...walls,
+    ...zoningExtensions(walls),
+  ]).filter(
+    (segment) =>
+      !overshoots.some(
+        (overshoot) =>
+          overshoot.wall.id === segment.wall.id &&
+          ((pointsEqual(segment.start, overshoot.tip) &&
+            pointsEqual(segment.end, overshoot.junction)) ||
+            (pointsEqual(segment.end, overshoot.tip) &&
+              pointsEqual(segment.start, overshoot.junction))),
+      ),
+  );
   return boundedPolygons(segments)
     .map((vertices) => canonicalPolygon(vertices))
     .flatMap((vertices) => {
@@ -341,6 +410,125 @@ export const boundsFromPoints = (
     : undefined;
 };
 
+/**
+ * Length-weighted half-thickness of physical walls along one axis-aligned edge
+ * of a derived face. Virtual boundaries (`kind === "virtual"`) and open zoning
+ * extensions contribute 0 cm of physical wall thickness.
+ */
+const edgeInwardHalfThicknessCm = (
+  start: Point,
+  end: Point,
+  walls: readonly Wall[],
+): number => {
+  const horizontal = start.y === end.y;
+  const edgeStart = horizontal
+    ? Math.min(start.x, end.x)
+    : Math.min(start.y, end.y);
+  const edgeEnd = horizontal
+    ? Math.max(start.x, end.x)
+    : Math.max(start.y, end.y);
+  const edgeLength = edgeEnd - edgeStart;
+  if (edgeLength <= 0) return 0;
+
+  const physicalIntervals = walls.flatMap((wall) => {
+    if (wall.kind === "virtual" || wall.thickness <= 0) return [];
+    if (horizontal && isHorizontal(wall) && wall.a.y === start.y) {
+      const from = Math.max(edgeStart, Math.min(wall.a.x, wall.b.x));
+      const to = Math.min(edgeEnd, Math.max(wall.a.x, wall.b.x));
+      return to > from ? [{ from, to, half: wall.thickness / 2 }] : [];
+    }
+    if (!horizontal && isVertical(wall) && wall.a.x === start.x) {
+      const from = Math.max(edgeStart, Math.min(wall.a.y, wall.b.y));
+      const to = Math.min(edgeEnd, Math.max(wall.a.y, wall.b.y));
+      return to > from ? [{ from, to, half: wall.thickness / 2 }] : [];
+    }
+    return [];
+  });
+
+  if (physicalIntervals.length === 0) return 0;
+
+  const cuts = [
+    ...new Set([
+      edgeStart,
+      edgeEnd,
+      ...physicalIntervals.flatMap((interval) => [interval.from, interval.to]),
+    ]),
+  ].toSorted((a, b) => a - b);
+
+  let weightedHalfThicknessSum = 0;
+  for (let index = 0; index < cuts.length - 1; index++) {
+    const subStart = cuts[index];
+    const subEnd = cuts[index + 1];
+    if (subStart === undefined || subEnd === undefined || subEnd <= subStart)
+      continue;
+    const mid = (subStart + subEnd) / 2;
+    const maxHalf = physicalIntervals.reduce(
+      (best, interval) =>
+        mid >= interval.from && mid <= interval.to
+          ? Math.max(best, interval.half)
+          : best,
+      0,
+    );
+    weightedHalfThicknessSum += (subEnd - subStart) * maxHalf;
+  }
+  return weightedHalfThicknessSum / edgeLength;
+};
+
+/**
+ * Derives the net internal (in-the-clear) polygon of a face by offsetting each
+ * CCW boundary edge inward by half of its physical wall thickness.
+ */
+export const netFacePolygon = (
+  face: DerivedFace,
+  walls: readonly Wall[],
+): DerivedFace => {
+  const { vertices } = face;
+  if (vertices.length < 3) return face;
+
+  const shiftedEdges = vertices.map((start, index) => {
+    const end = vertices[(index + 1) % vertices.length] ?? start;
+    const horizontal = start.y === end.y;
+    const half = edgeInwardHalfThicknessCm(start, end, walls);
+    if (horizontal) {
+      const sign = end.x >= start.x ? 1 : -1;
+      return { axis: "horizontal" as const, coord: start.y + sign * half };
+    }
+    const sign = end.y >= start.y ? -1 : 1;
+    return { axis: "vertical" as const, coord: start.x + sign * half };
+  });
+
+  const netVertices: Point[] = vertices.map((vertex, index) => {
+    const incoming =
+      shiftedEdges[(index - 1 + shiftedEdges.length) % shiftedEdges.length];
+    const outgoing = shiftedEdges[index];
+    const xCoord =
+      incoming?.axis === "vertical"
+        ? incoming.coord
+        : outgoing?.axis === "vertical"
+          ? outgoing.coord
+          : vertex.x;
+    const yCoord =
+      incoming?.axis === "horizontal"
+        ? incoming.coord
+        : outgoing?.axis === "horizontal"
+          ? outgoing.coord
+          : vertex.y;
+    return {
+      x: canonicalCentimetre(xCoord),
+      y: canonicalCentimetre(yCoord),
+    };
+  });
+
+  const bounds = boundsFromPoints(netVertices) ?? face.bounds;
+  return { bounds, vertices: netVertices };
+};
+
+export const netPolygonAreaCm2 = (
+  face: DerivedFace,
+  walls: readonly Wall[],
+): number =>
+  canonicalCentimetre(polygonAreaCm2(netFacePolygon(face, walls).vertices));
+
 /** Immutable derived graph; source walls are never altered. */
 export class DerivedTopology {
   constructor(readonly sourceWalls: readonly Wall[]) {}
@@ -359,6 +547,10 @@ export class DerivedTopology {
 
   faceContaining(point: Point): DerivedFace | undefined {
     return faceContainingPoint(this.faces, point);
+  }
+
+  netFace(face: DerivedFace): DerivedFace {
+    return netFacePolygon(face, this.sourceWalls);
   }
 
   surroundsFreestandingLoopAt(point: Point): boolean {

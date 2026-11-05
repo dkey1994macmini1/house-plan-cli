@@ -5,6 +5,7 @@ import {
   renderSvg,
   resolvePlan,
   surveyPlan,
+  transformPlan,
   validate,
 } from "../src/house-plan.js";
 import type { Operation } from "../src/modules/plan/model.js";
@@ -1350,5 +1351,136 @@ describe("HousePlanEngine", () => {
         ]),
       },
     });
+  });
+
+  it("warns with WALL_JUNCTION_OVERSHOOT when an interior wall pokes past a perpendicular wall by a short stub", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 600),
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "h-partition",
+          a: { x: 0, y: 300 },
+          b: { x: 600, y: 300 },
+          thickness: 12,
+          kind: "interior",
+        },
+      },
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "v-overshoot",
+          a: { x: 300, y: 295.6 },
+          b: { x: 300, y: 600 },
+          thickness: 12,
+          kind: "interior",
+        },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "master", type: "bedroom", seed: { x: 450, y: 150 } },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "room-nw", type: "bedroom", seed: { x: 150, y: 450 } },
+      },
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "room-ne", type: "bedroom", seed: { x: 450, y: 450 } },
+      },
+      slidingDoor("ground", "entry", "shell-south", 100),
+      slidingDoor("ground", "d-nw", "h-partition", 100),
+      slidingDoor("ground", "d-ne", "h-partition", 400),
+    ]);
+
+    expect(validate(plan)).toContainEqual(
+      expect.objectContaining({
+        code: "WALL_JUNCTION_OVERSHOOT",
+        severity: "warning",
+        location: { wall: "v-overshoot" },
+        measured: { value: 4.4, unit: "cm", limit: 25 },
+      }),
+    );
+  });
+
+  it("reflects a plan across the diagonal and round-trips back to identical room net areas and valid door swings", () => {
+    const plan = applied([
+      { kind: "level.upsert", name: "ground", elevationCm: 0, order: 0 },
+      ...rectangle("ground", "shell", 0, 0, 600, 400),
+      {
+        kind: "room.upsert",
+        level: "ground",
+        entity: { name: "living", type: "living", seed: { x: 300, y: 200 } },
+      },
+      {
+        kind: "opening.upsert",
+        level: "ground",
+        entity: {
+          name: "entry",
+          wall: "shell-south",
+          type: "door",
+          variant: "single",
+          offset: 100,
+          width: 90,
+          hinge: "left",
+          swing: "in",
+        },
+      },
+      {
+        kind: "object.upsert",
+        level: "ground",
+        entity: {
+          name: "car",
+          label: "",
+          kind: "car",
+          center: { x: 400, y: 200 },
+          width: 180,
+          depth: 300,
+          rotation: 0,
+        },
+      },
+      {
+        kind: "site.upsert",
+        level: "ground",
+        entity: {
+          name: "arrow",
+          variant: "entry_arrow",
+          bounds: { x: 120, y: -60, width: 40, height: 50 },
+          direction: "north",
+        },
+      },
+    ]);
+
+    const reflected = transformPlan(plan, 1, { mode: "reflect-diagonal" });
+    expect(reflected).not.toHaveProperty("ok");
+    if ("ok" in reflected) return;
+
+    const survey1 = surveyPlan(reflected).levels[0];
+    expect(survey1?.bounds).toEqual({ x: 0, y: 0, width: 400, height: 600 });
+    expect(survey1?.netFaceAreaCm2).toBe(
+      surveyPlan(plan).levels[0]?.netFaceAreaCm2,
+    );
+    expect(reflected.storeys[0]?.objects[0]?.rotation).toBe(90);
+    expect(reflected.storeys[0]?.sites?.[0]?.direction).toBe("west");
+
+    const roundTrip = transformPlan(reflected, 2, { mode: "reflect-diagonal" });
+    expect(roundTrip).not.toHaveProperty("ok");
+    if ("ok" in roundTrip) return;
+
+    expect(roundTrip.storeys[0]?.rooms[0]?.seed).toEqual({ x: 300, y: 200 });
+    expect(roundTrip.storeys[0]?.openings[0]).toMatchObject({
+      offset: 100,
+      width: 90,
+      hinge: "left",
+      swing: "in",
+    });
+    expect(roundTrip.storeys[0]?.objects[0]?.rotation).toBe(0);
+    expect(roundTrip.storeys[0]?.sites?.[0]?.direction).toBe("north");
   });
 });

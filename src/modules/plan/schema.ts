@@ -32,6 +32,17 @@ const LevelOperation = Schema.Struct({
   elevationCm: GridCentimetre,
   order: IntegerOrder,
 });
+const WallKindSchema = Schema.Literal("exterior", "interior", "virtual");
+const SiteVariantSchema = Schema.Literal(
+  "terrace",
+  "porch",
+  "driveway",
+  "eaves",
+  "column",
+  "entry_arrow",
+);
+const SiteDirectionSchema = Schema.Literal("north", "south", "east", "west");
+
 const WallOperation = Schema.Struct({
   kind: Schema.Literal("wall.upsert"),
   level: Schema.String.pipe(Schema.minLength(1)),
@@ -40,8 +51,11 @@ const WallOperation = Schema.Struct({
     Schema.Struct({
       a: Point,
       b: Point,
-      thickness: GridCentimetre.pipe(Schema.greaterThan(0)),
-      kind: Schema.Literal("exterior", "interior"),
+      thickness: Schema.optionalWith(
+        GridCentimetre.pipe(Schema.greaterThanOrEqualTo(0)),
+        { exact: true },
+      ),
+      kind: WallKindSchema,
     }),
   ),
 });
@@ -78,6 +92,7 @@ const ObjectOperation = Schema.Struct({
     Named,
     Schema.Struct({
       label: Schema.String,
+      kind: Schema.optionalWith(Schema.String, { exact: true }),
       center: Point,
       width: GridCentimetre.pipe(Schema.greaterThan(0)),
       depth: GridCentimetre.pipe(Schema.greaterThan(0)),
@@ -91,6 +106,23 @@ const ObjectOperation = Schema.Struct({
         }),
         { exact: true },
       ),
+    }),
+  ),
+});
+const SiteOperation = Schema.Struct({
+  kind: Schema.Literal("site.upsert"),
+  level: Schema.String.pipe(Schema.minLength(1)),
+  entity: Schema.extend(
+    Named,
+    Schema.Struct({
+      variant: SiteVariantSchema,
+      bounds: Schema.optionalWith(Bounds, { exact: true }),
+      points: Schema.optionalWith(
+        Schema.Array(Point).pipe(Schema.minItems(3)),
+        { exact: true },
+      ),
+      direction: Schema.optionalWith(SiteDirectionSchema, { exact: true }),
+      label: Schema.optionalWith(Schema.String, { exact: true }),
     }),
   ),
 });
@@ -137,6 +169,7 @@ const ResourceRemoveOperation = Schema.Struct({
     "room.remove",
     "opening.remove",
     "object.remove",
+    "site.remove",
     "stair.remove",
     "void.remove",
     "annotation.remove",
@@ -156,6 +189,7 @@ export const OperationSchema = Schema.Union(
   RoomOperation,
   OpeningOperation,
   ObjectOperation,
+  SiteOperation,
   StairOperation,
   VoidOperation,
   AnnotationOperation,
@@ -216,8 +250,8 @@ const PersistedWall = Schema.extend(
   Schema.Struct({
     a: PersistedPoint,
     b: PersistedPoint,
-    thickness: GridCentimetre.pipe(Schema.greaterThan(0)),
-    kind: Schema.Literal("exterior", "interior"),
+    thickness: GridCentimetre.pipe(Schema.greaterThanOrEqualTo(0)),
+    kind: WallKindSchema,
   }),
 );
 const PersistedRoom = Schema.extend(
@@ -242,6 +276,7 @@ const PersistedObject = Schema.extend(
   PersistedNamed,
   Schema.Struct({
     label: Schema.String,
+    kind: Schema.optionalWith(Schema.String, { exact: true }),
     center: PersistedPoint,
     width: GridCentimetre.pipe(Schema.greaterThan(0)),
     depth: GridCentimetre.pipe(Schema.greaterThan(0)),
@@ -255,6 +290,19 @@ const PersistedObject = Schema.extend(
       }),
       { exact: true },
     ),
+  }),
+);
+const PersistedSite = Schema.extend(
+  PersistedNamed,
+  Schema.Struct({
+    variant: SiteVariantSchema,
+    bounds: Schema.optionalWith(PersistedBounds, { exact: true }),
+    points: Schema.optionalWith(
+      Schema.Array(PersistedPoint).pipe(Schema.minItems(3)),
+      { exact: true },
+    ),
+    direction: Schema.optionalWith(SiteDirectionSchema, { exact: true }),
+    label: Schema.optionalWith(Schema.String, { exact: true }),
   }),
 );
 const PersistedStair = Schema.extend(
@@ -292,6 +340,7 @@ const PersistedStorey = Schema.Struct({
   voids: Schema.Array(PersistedVoid),
   annotations: Schema.Array(PersistedAnnotation),
   dimensions: Schema.Array(PersistedDimension),
+  sites: Schema.optionalWith(Schema.Array(PersistedSite), { exact: true }),
 });
 const PersistedLevel = Schema.extend(
   PersistedNamed,

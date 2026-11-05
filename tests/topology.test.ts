@@ -140,4 +140,24 @@ describe("derived orthogonal topology", () => {
       ]),
     );
   });
+
+  it("does not split an adjacent room when an interior wall overshoots a T-junction by a short stub", () => {
+    const walls = [
+      wall("south", { x: 0, y: 0 }, { x: 600, y: 0 }),
+      wall("north", { x: 0, y: 600 }, { x: 600, y: 600 }),
+      wall("west", { x: 0, y: 0 }, { x: 0, y: 600 }),
+      wall("east", { x: 600, y: 0 }, { x: 600, y: 600 }),
+      // Horizontal partition at y = 300
+      wall("h-partition", { x: 0, y: 300 }, { x: 600, y: 300 }),
+      // Vertical partition in the upper half that accidentally overshoots y = 300 down to y = 295.6 (4.4 cm stub)
+      wall("v-overshoot", { x: 300, y: 295.6 }, { x: 300, y: 600 }),
+    ];
+    const faces = extractOrthogonalFaces(walls);
+    // Upper half is split into two 300x300 rooms, but lower half (y = 0..300) must remain ONE 600x300 room!
+    expect(faces.map((face) => face.bounds)).toEqual([
+      { x: 0, y: 0, width: 600, height: 300 },
+      { x: 0, y: 300, width: 300, height: 300 },
+      { x: 300, y: 300, width: 300, height: 300 },
+    ]);
+  });
 });

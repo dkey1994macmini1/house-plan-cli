@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Diagnostic, HousePlan } from "../plan/model.js";
 import { validate } from "../plan/validation.js";
 import {
@@ -10,7 +10,7 @@ import type { RasterizationConfigError } from "./raster/resvg-adapter.js";
 import { renderPng } from "./raster/resvg-adapter.js";
 import type { RenderSettings } from "./render-options.js";
 import { defaultPngWidth } from "./render-options.js";
-import { renderSvg } from "./svg-renderer.js";
+import { renderSvg, renderVisualizeFragment } from "./svg-renderer.js";
 
 export type RenderedLevel = Readonly<{
   level: string;
@@ -18,6 +18,7 @@ export type RenderedLevel = Readonly<{
   format: "svg" | "png";
   width?: number;
   height?: number;
+  visualizePath?: string;
 }>;
 
 export type RenderConfigurationError = Error & {
@@ -90,15 +91,26 @@ const renderArtifact = async (
   settings: RenderSettings,
   protectedInputs: readonly string[],
   overwrite: boolean,
+  visualizeOut?: string,
 ): Promise<RenderedLevel> => {
   const levelName =
     plan.levels.find((candidate) => candidate.id === storey.levelId)?.name ??
     storey.id;
+  const svg = renderSvg(
+    plan,
+    storey,
+    settings.style,
+    settings.areaMode ?? "axis",
+  );
+  if (visualizeOut) {
+    const slug = basename(visualizeOut).replace(/\.[^.]+$/, "");
+    await guardedWriteFile(visualizeOut, renderVisualizeFragment(svg, slug), {
+      protect: [...protectedInputs, path],
+      overwrite: true,
+    });
+  }
   if (settings.format === "png") {
-    const image = await rasterize(
-      renderSvg(plan, storey, settings.style),
-      settings,
-    );
+    const image = await rasterize(svg, settings);
     await guardedWriteFile(path, image.bytes, {
       protect: protectedInputs,
       overwrite,
@@ -109,13 +121,19 @@ const renderArtifact = async (
       format: "png",
       width: image.width,
       height: image.height,
+      ...(visualizeOut ? { visualizePath: visualizeOut } : {}),
     };
   }
-  await guardedWriteFile(path, renderSvg(plan, storey, settings.style), {
+  await guardedWriteFile(path, svg, {
     protect: protectedInputs,
     overwrite,
   });
-  return { level: levelName, path, format: "svg" };
+  return {
+    level: levelName,
+    path,
+    format: "svg",
+    ...(visualizeOut ? { visualizePath: visualizeOut } : {}),
+  };
 };
 
 export const renderLevelToFile = async (
@@ -126,6 +144,7 @@ export const renderLevelToFile = async (
   settings: RenderSettings = technicalDefaults,
   protectedInputs: readonly string[] = [],
   overwrite = false,
+  visualizeOut?: string,
 ): Promise<RenderedLevel> => {
   assertNoDiagnostics(plan, allowInvalid);
   const storey = findStorey(plan, levelName);
@@ -137,6 +156,7 @@ export const renderLevelToFile = async (
     settings,
     protectedInputs,
     overwrite,
+    visualizeOut,
   );
 };
 

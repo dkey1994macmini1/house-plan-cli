@@ -1,5 +1,10 @@
 import { StoreyCirculation } from "./circulation.js";
-import { PlanObject, StairOccurrence, WallSegment } from "./domain-objects.js";
+import {
+  PlanObject,
+  SiteFeature,
+  StairOccurrence,
+  WallSegment,
+} from "./domain-objects.js";
 import { boundsOverlap, isGridCentimetre } from "./geometry.js";
 import type { Diagnostic, HousePlan, Named, Storey } from "./model.js";
 import {
@@ -13,7 +18,9 @@ import {
 import {
   type DerivedFace,
   DerivedTopology,
+  maxJunctionOvershootCm,
   pointStrictlyInsideFace,
+  wallJunctionOvershoots,
 } from "./topology.js";
 
 const error = (
@@ -65,6 +72,7 @@ const validateStoreyNames = (storey: Storey): readonly Diagnostic[] => {
     ...storey.rooms,
     ...storey.openings,
     ...storey.objects,
+    ...(storey.sites ?? []),
     ...storey.stairs,
     ...storey.voids,
     ...storey.annotations,
@@ -497,6 +505,36 @@ const validateStairRuns = (plan: HousePlan): readonly Diagnostic[] =>
     ];
   });
 
+const validateWallJunctionOvershoots = (
+  storey: Storey,
+): readonly Diagnostic[] =>
+  wallJunctionOvershoots(storey.walls).map((overshoot) => ({
+    code: "WALL_JUNCTION_OVERSHOOT",
+    severity: "warning" as const,
+    message: `Wall '${overshoot.wall.name}' overshoots a perpendicular wall junction by ${overshoot.overshootCm} cm`,
+    location: { wall: overshoot.wall.name },
+    measured: {
+      value: overshoot.overshootCm,
+      unit: "cm" as const,
+      limit: maxJunctionOvershootCm,
+    },
+    suggestion:
+      "Snap the wall endpoint to the perpendicular wall coordinate so it does not poke past the T-junction.",
+  }));
+
+const validateSites = (storey: Storey): readonly Diagnostic[] =>
+  (storey.sites ?? []).flatMap((site) =>
+    new SiteFeature(site).hasValidGeometry
+      ? []
+      : [
+          error(
+            "SITE_INVALID",
+            `Site element '${site.name}' requires valid bounds or polygon points`,
+            { site: site.name },
+          ),
+        ],
+  );
+
 export const validate = (plan: HousePlan): readonly Diagnostic[] => {
   const connectingRuns = connectingStairRuns(plan);
   const connectingStairIds = new Set(
@@ -510,11 +548,13 @@ export const validate = (plan: HousePlan): readonly Diagnostic[] => {
     ...plan.storeys.flatMap((storey) => [
       ...validateStoreyNames(storey),
       ...storey.walls.flatMap(validateWall),
+      ...validateWallJunctionOvershoots(storey),
       ...validateRoomSeeds(storey),
       ...validateRoomAccess(storey, connectingStairIds),
       ...validateOpeningPlacement(storey),
       ...validateOpeningCollisions(storey),
       ...validateObjects(storey),
+      ...validateSites(storey),
       ...validateDoorSwingCollisions(storey),
       ...validateDoorStairApproaches(storey),
     ]),

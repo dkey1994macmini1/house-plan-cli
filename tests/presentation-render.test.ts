@@ -386,6 +386,51 @@ describe("presentation SVG rendering", () => {
     expect(svg).toContain("6,0 m²");
   });
 
+  it("renders net areas, virtual boundaries, and site elements when areaMode is net", () => {
+    const plan = presentationPlan([
+      ...shell("net", 600, 400),
+      {
+        kind: "wall.upsert",
+        level: "ground",
+        entity: {
+          name: "virtual-split",
+          a: { x: 300, y: 0 },
+          b: { x: 300, y: 400 },
+          kind: "virtual",
+        },
+      },
+      room("living", "living", 150, 200),
+      room("kitchen", "kitchen", 450, 200),
+      hingedDoor("entry", "net-south", "left", "in", 60),
+      {
+        kind: "site.upsert",
+        level: "ground",
+        entity: {
+          name: "terrace",
+          variant: "terrace",
+          bounds: { x: 600, y: 0, width: 200, height: 400 },
+        },
+      },
+      {
+        kind: "site.upsert",
+        level: "ground",
+        entity: {
+          name: "eaves",
+          variant: "eaves",
+          bounds: { x: -50, y: -50, width: 900, height: 500 },
+        },
+      },
+    ]);
+    const svg = renderSvg(plan, groundStorey(plan), "presentation", "net");
+
+    // Net area of each half is 290 x 380 cm = 11.02 m^2
+    expect(svg).toContain("11,02 m²");
+    expect(svg).toContain("powierzchnia użytkowa netto");
+    expect(svg).toContain('class="wall-virtual"');
+    expect(svg).toContain('class="site-terrace"');
+    expect(svg).toContain('class="site-eaves"');
+  });
+
   it("stays byte-stable for the same plan", () => {
     const build = () =>
       presentationPlan([

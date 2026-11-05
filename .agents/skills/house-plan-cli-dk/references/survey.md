@@ -12,10 +12,11 @@ Each `data.levels[]` entry is one storey, ordered by `order`.
 | Field | Meaning |
 |---|---|
 | `bounds` | Footprint of derived faces, centimetres. `width` is the X extent, `height` is the Y extent. An L-shaped plan's box is larger than its floor area. |
-| `faceAreaCm2` | Sum of derived faces, each face once. This is the floor area. |
-| `roomClaimAreaCm2` | Sum of per-room areas. Larger than `faceAreaCm2` when two room seeds share a face. |
-| `faces[]` | One closed orthogonal polygon. A rectangle's `id` is `x,y,width,height`; an L/T face's `id` is `polygon:x,y;x,y;…` and it also carries `vertices`. `bounds` is the bounding box, `areaCm2` the true polygon area. `rooms` lists every seed inside it. |
-| `rooms[]` | Name, type, `faceId`, `widthCm` (X), `depthCm` (Y), `areaCm2`. `exteriorDoors` and `windows` touch that face. `objects` are those whose center is strictly inside the same face. |
+| `faceAreaCm2` / `netFaceAreaCm2` | Sum of derived faces, each face once (centerline vs net in-the-clear between physical wall faces). |
+| `roomClaimAreaCm2` / `netRoomClaimAreaCm2` | Sum of per-room areas (centerline vs net). Larger than `faceAreaCm2` when two room seeds share a face. |
+| `faces[]` | One closed orthogonal polygon. A rectangle's `id` is `x,y,width,height`; an L/T face's `id` is `polygon:x,y;x,y;…` and it also carries `vertices`. `bounds` is the bounding box, `areaCm2` the centerline polygon area, `netAreaCm2` the net internal area. `rooms` lists every seed inside it. |
+| `rooms[]` | Name, type, `faceId`, `widthCm`/`netWidthCm` (X), `depthCm`/`netDepthCm` (Y), `areaCm2`/`netAreaCm2`. `exteriorDoors` and `windows` touch that face. `objects` are those whose center is strictly inside the same face. |
+| `sites[]` | Optional exterior site elements (`terrace`, `porch`, `driveway`, `eaves`, `column`, `entry_arrow`) with `bounds` and `areaCm2`. |
 | `connections[]` | `kind` `door`, `passage` or `stair`. `widthCm` is the door width, the uncovered gap, or the stair width. `sides` is two sorted lists: room names on each side, `"outside"` for an exterior door, or `face:<id>` when that side has no room. A `stair` connection names its run in `opening`, appears on both levels it joins, and labels sides `level:room` (or `level:face:<id>`). |
 | `objectsOutsideRooms` | Objects whose center is not inside any face. |
 | `stairs` / `voids` | Authored footprints on this storey. Only runs listed as `stair` connections carry circulation between levels. |
@@ -26,7 +27,9 @@ A room with `faceId: null` has no closed face. Its area fields are null and it i
 <guidelines>
 ## How to describe the plan
 
-- Quote `faceAreaCm2` divided by 10000 as square metres. Do not add up `rooms[].areaCm2` when any `faces[].rooms` has more than one name: those rooms are one zone and `roomClaimAreaCm2` counts it twice.
+- Quote `faceAreaCm2` (centerline) or `netFaceAreaCm2` (net internal area in the clear of physical walls) divided by 10000 as square metres. Do not add up `rooms[].areaCm2` or `rooms[].netAreaCm2` when any `faces[].rooms` has more than one name: those rooms are one zone and `roomClaimAreaCm2` / `netRoomClaimAreaCm2` counts it twice.
+- Virtual walls (`kind: "virtual"`) split an open-plan space into distinct faces and create `passage` connections across the shared virtual edge without subtracting wall thickness from `netAreaCm2`.
+- Exterior elements (`sites[]`: `terrace`, `porch`, `driveway`, `eaves`, `column`, `entry_arrow`) are reported separately from interior `faces[]` and do not inflate `faceAreaCm2` or `netFaceAreaCm2`.
 - A connection is one opening or one gap. Rooms listed on the same side share the zone; they are not extra doors.
 - Windows are daylight on the room. They are not connections. Interior doors appear only under `connections`.
 - `data.valid: true` means the geometry checks passed. It does not mean the brief is met, that labels match separate rooms, or that the plan satisfies building code.
